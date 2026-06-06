@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --background: #FFFDF5;
+  --foreground: #111111;
+  --font-space: "Space Grotesk", sans-serif;
+  --font-plus: "Plus Jakarta Sans", sans-serif;
+}
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-plus);
+  --font-space: var(--font-space);
+  
+  --color-brutal-bg: #FFFDF5;
+  --color-brutal-soft-bg: #F8F1E5;
+  --color-brutal-black: #111111;
+  --color-brutal-charcoal: #252525;
+  --color-brutal-blue: #3B82F6;
+  --color-brutal-deep-blue: #1D4ED8;
+  --color-brutal-yellow: #FACC15;
+  --color-brutal-mint: #34D399;
+  --color-brutal-coral: #FB7185;
+  --color-brutal-purple: #A78BFA;
+  --color-brutal-orange: #FB923C;
+
+  --shadow-brutal-sm: 2px 2px 0px #111111;
+  --shadow-brutal-md: 4px 4px 0px #111111;
+  --shadow-brutal-lg: 6px 6px 0px #111111;
+  --shadow-brutal-xl: 8px 8px 0px #111111;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-plus);
+  margin: 0;
+  padding: 0;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-space);
+  font-weight: 700;
+}
