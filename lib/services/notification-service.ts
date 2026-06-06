@@ -341,7 +341,7 @@ export class NotificationService {
   static async testDiscordConnection(workspaceId: string, webhookUrl: string): Promise<boolean> {
     try {
       const { data: { user } } = await (await createClient()).auth.getUser();
-      const testMsg = `ProjectPilot AI connected successfully.
+      const testMsg = `Project Management connected successfully.
       
 **Workspace:** Test Workspace Connection
 **Status:** Ready to receive project notifications.`;
@@ -376,7 +376,7 @@ export class NotificationService {
   static async testTelegramConnection(workspaceId: string, botToken: string, chatId: string): Promise<boolean> {
     try {
       const { data: { user } } = await (await createClient()).auth.getUser();
-      const testMsg = `✅ *ProjectPilot AI Telegram connected.*
+      const testMsg = `✅ *Project Management Telegram connected.*
       
 Workspace status: Ready for critical project alerts.`;
 

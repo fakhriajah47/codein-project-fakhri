@@ -42,7 +42,7 @@ const supabase = createClient(
   }
 );
 
-const demoEmail = process.env.DEMO_EMAIL || "demo@projectpilot.ai";
+const demoEmail = process.env.DEMO_EMAIL || "demo@projectmanagement.ai";
 const demoPassword = process.env.DEMO_PASSWORD || "DemoPassword123";
 const demoName = process.env.DEMO_FULL_NAME || "Fakhri Rimbawan";
 

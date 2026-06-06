@@ -1,6 +1,6 @@
-# ProjectPilot AI
+# Project Management
 
-AI-assisted project management app for agencies and software teams. ProjectPilot combines workspace/project tracking, Kanban task execution, AI risk analysis, executive reports, and Discord/Telegram/Gmail delivery in a Next.js 16 App Router application backed by Supabase.
+AI-assisted project management app for agencies and software teams. Project Management combines workspace/project tracking, Kanban task execution, AI risk analysis, executive reports, and Discord/Telegram/Gmail delivery in a Next.js 16 App Router application backed by Supabase.
 
 ## Stack
 

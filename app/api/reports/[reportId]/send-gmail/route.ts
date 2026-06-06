@@ -76,7 +76,7 @@ export async function POST(
       .eq("id", report.project_id)
       .single();
 
-    const projectName = project?.name || "ProjectPilot AI Project";
+    const projectName = project?.name || "Project Management Project";
 
     const input = sendReportViaGmailSchema.parse({
       ...(await request.json()),

@@ -257,7 +257,7 @@ export class WorkspaceService {
       if (!targetAuthUser) {
         return {
           success: false,
-          message: `User with email ${email} is not registered in ProjectPilot AI. Please register first.`,
+          message: `User with email ${email} is not registered in Project Management. Please register first.`,
         };
       }
 

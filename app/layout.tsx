@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ProjectPilot AI - Project Command Center",
+  title: "Project Mangement - Project Command Center",
   description: "AI-powered project management command center for small teams, founders, and digital agencies.",
 };
 

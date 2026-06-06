@@ -50,7 +50,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="font-heading text-4xl font-extrabold uppercase tracking-tight text-brutal-black">
-            ProjectPilot <span className="bg-brutal-yellow px-2 py-0.5 border-2 border-brutal-black inline-block -rotate-1 shadow-brutal-sm">AI</span>
+            Project Management
           </h1>
           <p className="mt-3 text-sm font-bold text-gray-700">
             Buat akun dan mulai kelola proyek tim Anda

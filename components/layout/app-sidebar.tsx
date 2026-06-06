@@ -41,12 +41,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, setCollapsed 
       <div className="h-16 border-b-4 border-brutal-black flex items-center justify-between px-4 bg-brutal-yellow">
         {!collapsed && (
           <span className="font-heading font-black text-xl uppercase tracking-tight text-brutal-black">
-            PilotDeck <span className="text-white text-xs bg-brutal-black px-1.5 py-0.5 rounded border border-white ml-1">AI</span>
+            Project Management
           </span>
         )}
         {collapsed && (
           <span className="font-heading font-black text-xl text-brutal-black mx-auto">
-            PD
+            PM
           </span>
         )}
         <button
@@ -84,7 +84,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, setCollapsed 
       {/* Footer info */}
       {!collapsed && (
         <div className="p-4 border-t-4 border-brutal-black bg-brutal-soft-bg text-center font-bold text-xs uppercase text-gray-500">
-          ProjectPilot AI v1.0
+          Project Management v1.0
         </div>
       )}
     </aside>

@@ -36,7 +36,7 @@ export class GmailIntegration {
       const transporter = this.getTransporter();
       
       const info = await transporter.sendMail({
-        from: `"ProjectPilot AI" <${process.env.SMTP_USER}>`,
+        from: `"Project Management" <${process.env.SMTP_USER}>`,
         to: params.to,
         cc: params.cc || undefined,
         subject: params.subject,
@@ -87,7 +87,7 @@ Next Actions:
 ${params.nextActions.map(a => `- ${a}`).join("\n")}
 
 Best regards,
-ProjectPilot AI Command Center`;
+Project Management Command Center`;
   }
 
   static formatExecutiveReportHtml(params: {
@@ -111,7 +111,7 @@ ProjectPilot AI Command Center`;
     return `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 3px solid #000; box-shadow: 6px 6px 0px #000; background-color: #fff;">
         <div style="background-color: #A5B4FC; padding: 15px; border-bottom: 3px solid #000; text-align: center;">
-          <h2 style="margin: 0; font-family: 'Space Grotesk', Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px;">ProjectPilot AI Report</h2>
+          <h2 style="margin: 0; font-family: 'Space Grotesk', Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px;">Project Management Report</h2>
         </div>
         
         <div style="padding: 20px;">
@@ -154,7 +154,7 @@ ProjectPilot AI Command Center`;
         </div>
         
         <div style="border-top: 3px solid #000; padding: 15px; background-color: #F9FAFB; text-align: center; font-size: 12px; color: #666;">
-          Sent automatically via ProjectPilot AI Command Center.
+          Sent automatically via Project Management Command Center.
         </div>
       </div>
     `;

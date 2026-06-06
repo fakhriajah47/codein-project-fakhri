@@ -11,7 +11,7 @@ export default function LandingPage() {
       {/* Top Navigation */}
       <header className="h-20 border-b-4 border-brutal-black bg-brutal-yellow flex items-center justify-between px-6 md:px-12">
         <span className="font-heading font-black text-2xl uppercase tracking-tight text-brutal-black">
-          ProjectPilot <span className="text-white text-xs bg-brutal-black px-1.5 py-0.5 rounded border border-white ml-1 font-space">AI</span>
+          Project Management
         </span>
         
         <Link href="/dashboard">
@@ -87,7 +87,7 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="h-16 border-t-4 border-brutal-black bg-brutal-black text-white flex items-center justify-center font-bold text-xs uppercase tracking-wider">
-        ProjectPilot AI © {new Date().getFullYear()} - Sistem Aktif
+        Project Management © {new Date().getFullYear()} - Sistem Aktif
       </footer>
 
     </div>
