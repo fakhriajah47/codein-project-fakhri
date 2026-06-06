@@ -27,7 +27,7 @@ export default function LandingPage() {
         <div className="max-w-3xl space-y-6">
           <div className="inline-flex items-center gap-1.5 bg-brutal-purple border-2 border-brutal-black px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wide text-brutal-black shadow-brutal-sm -rotate-1">
             <Sparkles size={14} className="fill-current" />
-            Pusat Kendali Proyek Pintar v1.0
+            PROJECT MANAGEMENT v1.0
           </div>
 
           <h1 className="text-4xl md:text-6xl font-black uppercase text-brutal-black tracking-tight leading-tight">
