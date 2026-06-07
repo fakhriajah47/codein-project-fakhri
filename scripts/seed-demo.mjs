@@ -3,20 +3,21 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 function loadLocalEnv() {
-  const envPath = path.resolve(process.cwd(), ".env.local");
-  if (!fs.existsSync(envPath)) {
-    return;
-  }
-
-  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const match = trimmed.match(/^([^=]+)=(.*)$/);
-    if (!match) continue;
-    const key = match[1].trim();
-    const value = match[2].trim().replace(/^["']|["']$/g, "");
-    if (!process.env[key]) {
-      process.env[key] = value;
+  const envFiles = [".env", ".env.local"];
+  for (const file of envFiles) {
+    const envPath = path.resolve(process.cwd(), file);
+    if (fs.existsSync(envPath)) {
+      for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const match = trimmed.match(/^([^=]+)=(.*)$/);
+        if (!match) continue;
+        const key = match[1].trim();
+        const value = match[2].trim().replace(/^["']|["']$/g, "");
+        if (!process.env[key]) {
+          process.env[key] = value;
+        }
+      }
     }
   }
 }
@@ -42,20 +43,57 @@ const supabase = createClient(
   }
 );
 
-const demoEmail = process.env.DEMO_EMAIL || "demo@projectmanagement.ai";
-const demoPassword = process.env.DEMO_PASSWORD || "DemoPassword123";
+const demoEmail = process.env.SUPER_ADMIN_EMAIL || process.env.DEMO_EMAIL || "el@mail.com";
+const demoPassword = process.env.SUPER_ADMIN_PW || process.env.DEMO_PASSWORD || "11223344";
 const demoName = process.env.DEMO_FULL_NAME || "Fakhri Rimbawan";
+const demoUsers = [
+  {
+    email: demoEmail,
+    password: demoPassword,
+    fullName: demoName,
+    jobTitle: "Project Owner",
+    role: "owner",
+  },
+  {
+    email: process.env.DEMO_MANAGER_EMAIL || "manager@projectpilot.ai",
+    password: process.env.DEMO_MANAGER_PASSWORD || "DemoPassword123",
+    fullName: "Alya Prameswari",
+    jobTitle: "Project Manager",
+    role: "manager",
+  },
+  {
+    email: process.env.DEMO_MEMBER_EMAIL || "developer@projectpilot.ai",
+    password: process.env.DEMO_MEMBER_PASSWORD || "DemoPassword123",
+    fullName: "Rafi Maulana",
+    jobTitle: "Frontend Developer",
+    role: "member",
+  },
+  {
+    email: process.env.DEMO_DESIGNER_EMAIL || "designer@projectpilot.ai",
+    password: process.env.DEMO_DESIGNER_PASSWORD || "DemoPassword123",
+    fullName: "Nadia Kirana",
+    jobTitle: "UI Designer",
+    role: "member",
+  },
+  {
+    email: process.env.DEMO_VIEWER_EMAIL || "client@projectpilot.ai",
+    password: process.env.DEMO_VIEWER_PASSWORD || "DemoPassword123",
+    fullName: "Bima Santoso",
+    jobTitle: "Client Stakeholder",
+    role: "viewer",
+  },
+];
 
-async function getOrCreateDemoUser() {
+async function getOrCreateDemoUser(email = demoEmail, password = demoPassword) {
   const { data: userPage, error: listError } = await supabase.auth.admin.listUsers();
   if (listError) throw listError;
 
-  const existing = userPage.users.find((user) => user.email === demoEmail);
+  const existing = userPage.users.find((user) => user.email === email);
   if (existing) return existing.id;
 
   const { data, error } = await supabase.auth.admin.createUser({
-    email: demoEmail,
-    password: demoPassword,
+    email,
+    password,
     email_confirm: true,
   });
   if (error) throw error;
@@ -63,14 +101,24 @@ async function getOrCreateDemoUser() {
 }
 
 async function upsertIntegration(workspaceId, userId, provider, config) {
-  if (!Object.keys(config).length) return;
+  const cleanedConfig = Object.fromEntries(
+    Object.entries(config).filter(([, value]) => value !== undefined && value !== null && value !== "")
+  );
+  const isReady =
+    provider === "discord"
+      ? Boolean(cleanedConfig.webhookUrl)
+      : provider === "telegram"
+        ? Boolean(cleanedConfig.botToken && cleanedConfig.chatId)
+        : provider === "gmail"
+          ? Boolean(cleanedConfig.connectedEmail)
+          : Object.keys(cleanedConfig).length > 0;
 
   const { error } = await supabase.from("integration_settings").upsert(
     {
       workspace_id: workspaceId,
       provider,
-      config,
-      is_enabled: true,
+      config: cleanedConfig,
+      is_enabled: isReady,
       created_by: userId,
     },
     { onConflict: "workspace_id,provider" }
@@ -79,17 +127,27 @@ async function upsertIntegration(workspaceId, userId, provider, config) {
 }
 
 async function runSeed() {
-  const userId = await getOrCreateDemoUser();
+  const seededUsers = [];
+  for (const demoUser of demoUsers) {
+    const userId = await getOrCreateDemoUser(demoUser.email, demoUser.password);
+    seededUsers.push({ ...demoUser, id: userId });
 
-  await supabase.from("profiles").upsert(
-    {
-      user_id: userId,
-      full_name: demoName,
-      job_title: "Project Owner",
-      timezone: "Asia/Jakarta",
-    },
-    { onConflict: "user_id" }
-  );
+    await supabase.from("profiles").upsert(
+      {
+        user_id: userId,
+        full_name: demoUser.fullName,
+        job_title: demoUser.jobTitle,
+        timezone: "Asia/Jakarta",
+      },
+      { onConflict: "user_id" }
+    );
+  }
+
+  const owner = seededUsers.find((user) => user.role === "owner");
+  const manager = seededUsers.find((user) => user.role === "manager");
+  const developer = seededUsers.find((user) => user.email.includes("developer"));
+  const designer = seededUsers.find((user) => user.email.includes("designer"));
+  const viewer = seededUsers.find((user) => user.role === "viewer");
 
   const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
@@ -98,7 +156,7 @@ async function runSeed() {
         name: "Sohibdigi Studio",
         slug: "sohibdigi-studio",
         description: "Workspace demo untuk project digital agency",
-        owner_id: userId,
+        owner_id: owner.id,
       },
       { onConflict: "slug" }
     )
@@ -106,25 +164,34 @@ async function runSeed() {
     .single();
   if (workspaceError) throw workspaceError;
 
-  await supabase.from("workspace_members").upsert(
-    {
-      workspace_id: workspace.id,
-      user_id: userId,
-      role: "owner",
-      status: "active",
-      joined_at: new Date().toISOString(),
-    },
-    { onConflict: "workspace_id,user_id" }
-  );
+  for (const demoUser of seededUsers) {
+    await supabase.from("workspace_members").upsert(
+      {
+        workspace_id: workspace.id,
+        user_id: demoUser.id,
+        role: demoUser.role,
+        status: "active",
+        invited_by: demoUser.role === "owner" ? null : owner.id,
+        joined_at: new Date().toISOString(),
+      },
+      { onConflict: "workspace_id,user_id" }
+    );
+  }
 
-  await upsertIntegration(workspace.id, userId, "discord", {
-    webhookUrl: process.env.DISCORD_WEBHOOK_URL_DEFAULT,
+  await Promise.all([
+    supabase.from("activity_logs").delete().eq("workspace_id", workspace.id),
+    supabase.from("notification_logs").delete().eq("workspace_id", workspace.id),
+    supabase.from("ai_generations").delete().eq("workspace_id", workspace.id),
+  ]);
+
+  await upsertIntegration(workspace.id, owner.id, "discord", {
+    webhookUrl: process.env.DISCORD_WEBHOOK_URL_DEFAULT || process.env.DISCORD_WEBHOOK_URL,
   });
-  await upsertIntegration(workspace.id, userId, "telegram", {
+  await upsertIntegration(workspace.id, owner.id, "telegram", {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
-    chatId: process.env.TELEGRAM_DEFAULT_CHAT_ID,
+    chatId: process.env.TELEGRAM_DEFAULT_CHAT_ID || process.env.TELEGRAM_CHAT_ID,
   });
-  await upsertIntegration(workspace.id, userId, "gmail", {
+  await upsertIntegration(workspace.id, owner.id, "gmail", {
     connectedEmail: process.env.SMTP_USER || process.env.GMAIL_CONNECTED_EMAIL || demoEmail,
   });
 
@@ -171,6 +238,34 @@ async function runSeed() {
       health_status: "critical",
       risk_score: 85,
     },
+    {
+      name: "Mobile App Booking Barber",
+      slug: "mobile-app-booking-barber",
+      description: "Aplikasi booking appointment untuk jaringan barber lokal.",
+      client_name: "BarberHub",
+      project_type: "Mobile Application",
+      status: "completed",
+      priority: "medium",
+      start_date: "2026-04-05",
+      due_date: "2026-05-30",
+      progress: 100,
+      health_status: "completed",
+      risk_score: 0,
+    },
+    {
+      name: "Brand Refresh Kopi Nusantara",
+      slug: "brand-refresh-kopi-nusantara",
+      description: "Refresh brand identity, landing page, dan asset campaign.",
+      client_name: "Kopi Nusantara",
+      project_type: "Branding",
+      status: "on_hold",
+      priority: "low",
+      start_date: "2026-06-01",
+      due_date: "2026-09-15",
+      progress: 35,
+      health_status: "healthy",
+      risk_score: 12,
+    },
   ];
 
   const seededProjects = [];
@@ -181,7 +276,7 @@ async function runSeed() {
         {
           ...project,
           workspace_id: workspace.id,
-          created_by: userId,
+          created_by: owner.id,
         },
         { onConflict: "workspace_id,slug" }
       )
@@ -192,8 +287,22 @@ async function runSeed() {
   }
 
   const mainProject = seededProjects[0];
+  for (const project of seededProjects) {
+    await supabase.from("project_members").upsert(
+      [
+        { project_id: project.id, user_id: owner.id, role: "owner" },
+        { project_id: project.id, user_id: manager.id, role: "lead" },
+        { project_id: project.id, user_id: developer.id, role: "contributor" },
+        { project_id: project.id, user_id: designer.id, role: "contributor" },
+        { project_id: project.id, user_id: viewer.id, role: "viewer" },
+      ],
+      { onConflict: "project_id,user_id" }
+    );
+  }
+
   await supabase.from("tasks").delete().eq("project_id", mainProject.id);
   await supabase.from("milestones").delete().eq("project_id", mainProject.id);
+  await supabase.from("reports").delete().eq("project_id", mainProject.id);
 
   const milestoneRows = [
     ["Planning & Design", "Requirement, sitemap, and UI design.", "completed", "2026-06-15", 100],
@@ -232,7 +341,16 @@ async function runSeed() {
     ["Deploy to Vercel", "todo", "urgent", "2026-07-01", milestones[2].id],
   ];
 
-  for (const [title, status, priority, dueDate, milestoneId] of tasks) {
+  for (const [index, [title, status, priority, dueDate, milestoneId]] of tasks.entries()) {
+    const assigneeId =
+      title === "Deploy to Vercel"
+        ? null
+        : (title === "Configure notification webhook" || title === "QA responsive mobile")
+          ? owner.id
+          : index % 2 === 0
+            ? developer.id
+            : designer.id;
+
     await supabase.from("tasks").insert({
       workspace_id: workspace.id,
       project_id: mainProject.id,
@@ -241,8 +359,8 @@ async function runSeed() {
       description: `${title} for ${mainProject.name}.`,
       status,
       priority,
-      assignee_id: userId,
-      reporter_id: userId,
+      assignee_id: assigneeId,
+      reporter_id: manager.id,
       due_date: dueDate,
       acceptance_criteria: ["Output meets approved scope", "Reviewed by project lead"],
       ai_generated: false,
@@ -253,7 +371,7 @@ async function runSeed() {
   await supabase.from("project_members").upsert(
     {
       project_id: mainProject.id,
-      user_id: userId,
+      user_id: owner.id,
       role: "lead",
     },
     { onConflict: "project_id,user_id" }
@@ -263,7 +381,7 @@ async function runSeed() {
     {
       workspace_id: workspace.id,
       project_id: mainProject.id,
-      actor_id: userId,
+      actor_id: owner.id,
       action: "project.created",
       entity_type: "project",
       entity_id: mainProject.id,
@@ -272,18 +390,99 @@ async function runSeed() {
     {
       workspace_id: workspace.id,
       project_id: mainProject.id,
-      actor_id: userId,
+      actor_id: manager.id,
       action: "ai.risk_generated",
       entity_type: "project",
       entity_id: mainProject.id,
       metadata: { riskScore: 64, riskLevel: "medium" },
+    },
+    {
+      workspace_id: workspace.id,
+      project_id: mainProject.id,
+      actor_id: developer.id,
+      action: "task.status_changed",
+      entity_type: "task",
+      entity_id: mainProject.id,
+      metadata: { taskTitle: "Build hero section", fromStatus: "in_progress", toStatus: "done" },
+    },
+    {
+      workspace_id: workspace.id,
+      project_id: mainProject.id,
+      actor_id: manager.id,
+      action: "notification.risk_alert_sent",
+      entity_type: "notification",
+      entity_id: mainProject.id,
+      metadata: { providers: ["telegram"], sent: ["telegram"], failed: [] },
+    },
+  ]);
+
+  await supabase.from("ai_generations").insert([
+    {
+      workspace_id: workspace.id,
+      project_id: mainProject.id,
+      user_id: manager.id,
+      type: "risk_analysis",
+      prompt: "Demo risk analysis for Website Company Profile PT Maju Digital",
+      response: {
+        riskLevel: "medium",
+        riskScore: 64,
+        summary: "Project membutuhkan perhatian pada deployment dan webhook integration.",
+        reasons: ["Deadline dekat", "Ada task blocked", "Ada task urgent belum punya owner"],
+        recommendations: ["Assign deployment owner", "Escalate webhook issue"],
+        escalationMessage: "Mohon review task blocked hari ini agar timeline tetap aman.",
+      },
+      status: "success",
+    },
+    {
+      workspace_id: workspace.id,
+      project_id: mainProject.id,
+      user_id: manager.id,
+      type: "executive_summary",
+      prompt: "Demo executive summary for CEO",
+      response: {
+        title: "Executive Summary",
+        progress: 62,
+        status: "At Risk",
+        summary: "Project berjalan, namun butuh fokus pada QA dan deployment.",
+      },
+      status: "success",
+    },
+  ]);
+
+  await supabase.from("notification_logs").insert([
+    {
+      workspace_id: workspace.id,
+      project_id: mainProject.id,
+      provider: "discord",
+      event_type: "task.completed",
+      payload: { message: "Task completed update sent to Discord." },
+      status: "sent",
+      sent_at: new Date().toISOString(),
+    },
+    {
+      workspace_id: workspace.id,
+      project_id: mainProject.id,
+      provider: "telegram",
+      event_type: "ai.risk_generated",
+      payload: { message: "Medium risk alert sent to Telegram." },
+      status: "sent",
+      sent_at: new Date().toISOString(),
+    },
+    {
+      workspace_id: workspace.id,
+      project_id: mainProject.id,
+      provider: "gmail",
+      event_type: "report.sent",
+      payload: { reportTitle: "Executive Summary", to: "ceo@majudigital.com" },
+      status: "failed",
+      error_message: "Demo SMTP credentials are not configured.",
     },
   ]);
 
   await supabase.from("reports").insert({
     workspace_id: workspace.id,
     project_id: mainProject.id,
-    created_by: userId,
+    created_by: manager.id,
     title: "Executive Summary - Website Company Profile PT Maju Digital",
     type: "executive",
     target_audience: "ceo",
@@ -299,6 +498,7 @@ async function runSeed() {
   });
 
   console.log(`Demo seed ready. Login with ${demoEmail} / ${demoPassword}`);
+  console.log(`Additional demo users: ${demoUsers.slice(1).map((user) => user.email).join(", ")}`);
 }
 
 runSeed().catch((error) => {

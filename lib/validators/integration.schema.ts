@@ -1,26 +1,33 @@
 import { z } from "zod";
 
 export const providerSchema = z.enum(["discord", "telegram", "gmail"]);
+export const MASK_PLACEHOLDER = "****************";
+
+const maskedValueSchema = z.string().includes(MASK_PLACEHOLDER);
+
+const discordWebhookUrlSchema = z
+  .string()
+  .url("Please enter a valid Discord webhook URL.")
+  .refine(
+    (url) => url.includes("discord.com/api/webhooks") || url.includes("discordapp.com/api/webhooks"),
+    "Please enter a valid Discord webhook URL."
+  );
+
+const telegramBotTokenSchema = z
+  .string()
+  .trim()
+  .min(20, "Telegram bot token seems too short.")
+  .max(200, "Telegram bot token is too long.");
 
 export const saveDiscordIntegrationSchema = z.object({
   workspaceId: z.string().uuid("Invalid workspace ID."),
-  webhookUrl: z
-    .string()
-    .url("Please enter a valid Discord webhook URL.")
-    .refine(
-      (url) => url.includes("discord.com/api/webhooks") || url.includes("discordapp.com/api/webhooks"),
-      "Please enter a valid Discord webhook URL."
-    ),
+  webhookUrl: z.union([discordWebhookUrlSchema, maskedValueSchema]),
   isEnabled: z.boolean().default(true)
 });
 
 export const saveTelegramIntegrationSchema = z.object({
   workspaceId: z.string().uuid("Invalid workspace ID."),
-  botToken: z
-    .string()
-    .trim()
-    .min(20, "Telegram bot token seems too short.")
-    .max(200, "Telegram bot token is too long."),
+  botToken: z.union([telegramBotTokenSchema, maskedValueSchema]),
   chatId: z
     .string()
     .trim()

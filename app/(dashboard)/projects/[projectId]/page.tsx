@@ -9,10 +9,12 @@ import { BrutalBadge, BrutalBadgeVariant } from "@/components/ui/brutal-badge";
 import { BrutalInput } from "@/components/ui/brutal-input";
 import { BrutalTextarea } from "@/components/ui/brutal-textarea";
 import { BrutalAlert } from "@/components/ui/brutal-alert";
+import { formatActivityDescription } from "@/lib/utils/activity-formatter";
 import { LoadingState } from "@/components/shared/loading-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Project, Task, Milestone, TaskStatus, TaskPriority, ProjectPriority, ProjectStatus, ActivityLog, TaskComment } from "@/types";
+import { createClient } from "@/lib/supabase/client";
 import {
   Folder,
   Calendar,
@@ -29,6 +31,8 @@ import {
   Send,
   Clock,
   X,
+  Trash2,
+  Edit3,
 } from "lucide-react";
 
 type TabType = "overview" | "board" | "milestones" | "ai" | "reports" | "activity" | "settings";
@@ -109,6 +113,21 @@ export default function ProjectDetailsPage() {
   const [summaryRecipient, setSummaryRecipient] = useState("");
   const [gmailKirimLoading, setGmailKirimLoading] = useState(false);
 
+  // AI Conversational Chat states
+  const [showChat, setShowChat] = useState(true);
+  const [chatMessages, setChatMessages] = useState<Array<{ sender: "user" | "ai"; text: string; actions?: string[] }>>([
+    {
+      sender: "ai",
+      text: "Halo! Saya adalah Asisten AI Proyek Anda. Anda bisa menanyakan data proyek ini (seperti progress, tugas yang sedang dikerjakan) atau langsung memerintahkan saya untuk membuat tugas baru, membuat milestone baru, atau memperbarui status tugas.",
+    },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+
+  // Task Editing & Current User state
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
   // Project Settings form state
   const [pName, setPName] = useState("");
   const [pDeskripsi, setPDeskripsi] = useState("");
@@ -179,6 +198,10 @@ export default function ProjectDetailsPage() {
 
   useEffect(() => {
     fetchProjectData();
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setCurrentUserId(user.id);
+    });
   }, [projectId, activeWorkspace]);
 
   // Load selected task details (comments, etc.)
@@ -251,6 +274,24 @@ export default function ProjectDetailsPage() {
     }
   };
 
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm("Apakah Anda yakin ingin menghapus tugas ini?")) return;
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: "DELETE",
+      });
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        alert(resData.message || "Gagal menghapus tugas.");
+      } else {
+        setSelectedTask(null);
+        await fetchProjectData();
+      }
+    } catch {
+      alert("Koneksi gagal.");
+    }
+  };
+
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     setTaskLoading(true);
@@ -262,8 +303,12 @@ export default function ProjectDetailsPage() {
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
 
-      const response = await fetch(`/api/projects/${projectId}/tasks`, {
-        method: "POST",
+      const isEditing = !!editingTaskId;
+      const url = isEditing ? `/api/tasks/${editingTaskId}` : `/api/projects/${projectId}/tasks`;
+      const method = isEditing ? "PATCH" : "POST";
+
+      const response = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: activeWorkspace!.id,
@@ -271,10 +316,10 @@ export default function ProjectDetailsPage() {
           title: taskTitle,
           description: taskDescription,
           priority: taskPriority,
-          assigneeId: taskAssignee || undefined,
-          milestoneId: taskMilestone || undefined,
-          dueDate: taskDueDate || undefined,
-          estimatedHours: taskEstHours ? parseFloat(taskEstHours) : undefined,
+          assigneeId: taskAssignee || null,
+          milestoneId: taskMilestone || null,
+          dueDate: taskDueDate || null,
+          estimatedHours: taskEstHours ? parseFloat(taskEstHours) : null,
           acceptanceCriteria: criteriaList,
         }),
       });
@@ -282,7 +327,7 @@ export default function ProjectDetailsPage() {
       const resData = await response.json();
 
       if (!response.ok || !resData.success) {
-        setTaskError(resData.message || "Gagal membuat tugas.");
+        setTaskError(resData.message || `Gagal ${isEditing ? "memperbarui" : "membuat"} tugas.`);
       } else {
         setTaskTitle("");
         setTaskDescription("");
@@ -293,6 +338,7 @@ export default function ProjectDetailsPage() {
         setTaskEstHours("");
         setTaskCriteria("");
         setIsTaskModalOpen(false);
+        setEditingTaskId(null);
         await fetchProjectData();
       }
     } catch (err: any) {
@@ -300,6 +346,20 @@ export default function ProjectDetailsPage() {
     } finally {
       setTaskLoading(false);
     }
+  };
+
+  const handleCloseTaskModal = () => {
+    setIsTaskModalOpen(false);
+    setEditingTaskId(null);
+    setTaskTitle("");
+    setTaskDescription("");
+    setTaskPriority("medium");
+    setTaskAssignee("");
+    setTaskMilestone("");
+    setTaskDueDate("");
+    setTaskEstHours("");
+    setTaskCriteria("");
+    setTaskError(null);
   };
 
   const handleCreateMilestone = async (e: React.FormEvent) => {
@@ -418,6 +478,8 @@ export default function ProjectDetailsPage() {
     setAiRiskLoading(true);
     setAiRiskError(null);
     setAiRiskResult(null);
+    setAiBrief("");
+    setShowChat(false);
 
     try {
       const response = await fetch(`/api/ai/risk-analysis`, {
@@ -481,6 +543,8 @@ ${aiRiskResult.escalationMessage}`,
     setAiSummaryLoading(true);
     setAiSummaryError(null);
     setAiSummaryResult(null);
+    setAiBrief("");
+    setShowChat(false);
 
     try {
       const response = await fetch(`/api/ai/executive-summary`, {
@@ -621,6 +685,9 @@ ${aiRiskResult.escalationMessage}`,
   if (project.priority === "urgent") priorityVariant = "red";
   if (project.priority === "low") priorityVariant = "gray";
 
+  const canEditTask = !!selectedTask && (workspaceRole === "owner" || workspaceRole === "manager" || selectedTask.assignee_id === currentUserId);
+  const canDeleteTask = !!selectedTask && (workspaceRole === "owner" || workspaceRole === "manager");
+
   return (
     <div className="space-y-6">
       {/* Top Banner Header */}
@@ -664,7 +731,7 @@ ${aiRiskResult.escalationMessage}`,
         </div>
 
         {/* Tab Selection Row */}
-        <div className="mt-8 border-t-2 border-dashed border-gray-200 pt-4 flex flex-wrap gap-2">
+        <div className="mt-8 border-t-2 border-dashed border-gray-200 pt-4 flex flex-row overflow-x-auto flex-nowrap pb-2 gap-2 max-w-full scrollbar-none">
           {(
             [
               { id: "overview", name: "Ikhtisar", icon: Folder },
@@ -682,7 +749,7 @@ ${aiRiskResult.escalationMessage}`,
               <button
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
-                className={`flex items-center gap-1.5 py-2 px-3 text-xs font-black uppercase border-2 rounded-xl transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 py-2 px-3 text-xs font-black uppercase border-2 rounded-xl transition-all cursor-pointer shrink-0 ${
                   isSelected
                     ? "bg-brutal-blue text-white border-brutal-black shadow-brutal-xs translate-x-0.5 translate-y-0.5"
                     : "bg-white text-brutal-black border-transparent hover:border-brutal-black hover:bg-brutal-soft-bg"
@@ -831,10 +898,10 @@ ${aiRiskResult.escalationMessage}`,
             </div>
 
             {/* Kanban Columns */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-start overflow-x-auto pb-4">
+            <div className="flex md:grid flex-nowrap md:flex-wrap md:grid-cols-3 lg:grid-cols-6 gap-4 items-start overflow-x-auto pb-4 max-w-full">
               {(
                 [
-                  { id: "backlog", name: "Kembalilog", bg: "bg-gray-100" },
+                  { id: "backlog", name: "Belum Dimulai", bg: "bg-gray-100" },
                   { id: "todo", name: "Rencana", bg: "bg-white" },
                   { id: "in_progress", name: "Dikerjakan", bg: "bg-brutal-soft-bg" },
                   { id: "in_review", name: "Ditinjau", bg: "bg-amber-50" },
@@ -847,7 +914,7 @@ ${aiRiskResult.escalationMessage}`,
                 return (
                   <div
                     key={col.id}
-                    className={`border-2 border-brutal-black rounded-xl p-3 shadow-brutal-xs min-h-[350px] flex flex-col gap-3 ${col.bg}`}
+                    className={`w-[280px] shrink-0 md:w-auto border-2 border-brutal-black rounded-xl p-3 shadow-brutal-xs min-h-[350px] flex flex-col gap-3 ${col.bg}`}
                   >
                     <div className="flex items-center justify-between border-b-2 border-dashed border-gray-300 pb-1">
                       <span className="font-black text-xs uppercase text-brutal-black">
@@ -1006,13 +1073,33 @@ ${aiRiskResult.escalationMessage}`,
                 <div className="space-y-3">
                   <button
                     onClick={() => {
+                      setAiBrief("");
+                      setAiResult(null);
+                      setAiRiskResult(null);
+                      setAiSummaryResult(null);
+                      setAiError(null);
+                      setShowChat(true);
+                    }}
+                    className={`w-full text-left py-2 px-3 border-2 border-brutal-black rounded-xl text-xs font-black uppercase tracking-wide transition-all shadow-brutal-xs flex items-center justify-between ${
+                      showChat ? "bg-brutal-yellow text-brutal-black" : "bg-white hover:bg-gray-100"
+                    }`}
+                  >
+                    Asisten Percakapan AI
+                    <ArrowRight size={14} />
+                  </button>
+
+                  <button
+                    onClick={() => {
                       setAiResult(null);
                       setAiRiskResult(null);
                       setAiSummaryResult(null);
                       setAiBrief("Buat website company profile untuk agency digital dengan halaman home, service, portfolio, about, contact.");
                       setAiError(null);
+                      setShowChat(false);
                     }}
-                    className="w-full text-left py-2 px-3 bg-white hover:bg-gray-100 border-2 border-brutal-black rounded-xl text-xs font-black uppercase tracking-wide transition-all shadow-brutal-xs flex items-center justify-between"
+                    className={`w-full text-left py-2 px-3 border-2 border-brutal-black rounded-xl text-xs font-black uppercase tracking-wide transition-all shadow-brutal-xs flex items-center justify-between ${
+                      aiBrief && !aiRiskResult && !aiSummaryResult ? "bg-brutal-yellow text-brutal-black" : "bg-white hover:bg-gray-100"
+                    }`}
                   >
                     Pembuat Tugas Otomatis
                     <ArrowRight size={14} />
@@ -1020,7 +1107,9 @@ ${aiRiskResult.escalationMessage}`,
 
                   <button
                     onClick={handleAIRiskAnalyze}
-                    className="w-full text-left py-2 px-3 bg-white hover:bg-gray-100 border-2 border-brutal-black rounded-xl text-xs font-black uppercase tracking-wide transition-all shadow-brutal-xs flex items-center justify-between"
+                    className={`w-full text-left py-2 px-3 border-2 border-brutal-black rounded-xl text-xs font-black uppercase tracking-wide transition-all shadow-brutal-xs flex items-center justify-between ${
+                      aiRiskResult ? "bg-brutal-yellow text-brutal-black" : "bg-white hover:bg-gray-100"
+                    }`}
                   >
                     Radar Risiko Proyek
                     {aiRiskLoading ? "Analyzing..." : <ArrowRight size={14} />}
@@ -1028,7 +1117,9 @@ ${aiRiskResult.escalationMessage}`,
 
                   <button
                     onClick={handleAIExecutiveSummary}
-                    className="w-full text-left py-2 px-3 bg-white hover:bg-gray-100 border-2 border-brutal-black rounded-xl text-xs font-black uppercase tracking-wide transition-all shadow-brutal-xs flex items-center justify-between"
+                    className={`w-full text-left py-2 px-3 border-2 border-brutal-black rounded-xl text-xs font-black uppercase tracking-wide transition-all shadow-brutal-xs flex items-center justify-between ${
+                      aiSummaryResult ? "bg-brutal-yellow text-brutal-black" : "bg-white hover:bg-gray-100"
+                    }`}
                   >
                     Ringkasan Eksekutif Pintar
                     {aiSummaryLoading ? "Generating..." : <ArrowRight size={14} />}
@@ -1040,6 +1131,114 @@ ${aiRiskResult.escalationMessage}`,
             {/* Right Result Panel */}
             <div className="lg:col-span-2">
               <BrutalCard className="bg-white min-h-[400px]">
+                {/* 0. Conversational Chat View */}
+                {showChat && !aiBrief && !aiRiskResult && !aiSummaryResult && (
+                  <div className="flex flex-col h-[500px]">
+                    <h3 className="text-lg font-black uppercase border-b-2 border-dashed border-gray-200 pb-2 mb-4 shrink-0">
+                      Asisten Percakapan AI
+                    </h3>
+                    
+                    {/* Messages Container */}
+                    <div className="flex-1 overflow-y-auto space-y-4 pr-1 mb-4 flex flex-col min-h-0">
+                      {chatMessages.map((msg, index) => (
+                        <div
+                          key={index}
+                          className={`max-w-[85%] p-3.5 rounded-xl border-2 border-brutal-black shadow-brutal-xs flex flex-col gap-1.5 ${
+                            msg.sender === "user"
+                              ? "bg-brutal-blue text-white self-end animate-fade-in"
+                              : "bg-brutal-soft-bg text-brutal-black self-start animate-fade-in"
+                          }`}
+                        >
+                          <div className="text-[10px] font-black uppercase tracking-wider opacity-60">
+                            {msg.sender === "user" ? "Anda" : "Gemini AI"}
+                          </div>
+                          <p className="text-xs font-bold leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                          {msg.actions && msg.actions.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-dashed border-gray-300 space-y-1">
+                              <div className="text-[9px] font-black uppercase text-brutal-mint">⚡ Tindakan Berhasil Dijalankan:</div>
+                              {msg.actions.map((act, aIdx) => (
+                                <div key={aIdx} className="text-[10px] font-bold text-gray-700 flex items-center gap-1">
+                                  <span>✅</span>
+                                  <span>{act}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {chatLoading && (
+                        <div className="bg-brutal-soft-bg text-brutal-black self-start max-w-[85%] p-3.5 rounded-xl border-2 border-brutal-black shadow-brutal-xs flex items-center gap-2">
+                          <span className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-brutal-black" />
+                          <span className="text-xs font-bold">Gemini sedang memproses aksi Anda...</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Input Area */}
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!chatInput.trim() || chatLoading) return;
+
+                        const userMsg = chatInput.trim();
+                        setChatInput("");
+                        setChatMessages((prev) => [...prev, { sender: "user", text: userMsg }]);
+                        setChatLoading(true);
+
+                        try {
+                          const response = await fetch("/api/ai/chat", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              projectId,
+                              message: userMsg,
+                              history: chatMessages.slice(-10).map((m) => ({
+                                role: m.sender === "user" ? "user" : "model",
+                                parts: [{ text: m.text }],
+                              })),
+                            }),
+                          });
+                          
+                          const result = await response.json();
+                          if (response.ok && result.success) {
+                            setChatMessages((prev) => [
+                              ...prev,
+                              { sender: "ai", text: result.data.reply, actions: result.data.actions },
+                            ]);
+                            await fetchProjectData(); // Refresh page data
+                          } else {
+                            setChatMessages((prev) => [
+                              ...prev,
+                              { sender: "ai", text: `Gagal memproses aksi AI: ${result.message || "Unknown error"}` },
+                            ]);
+                          }
+                        } catch (err: any) {
+                          setChatMessages((prev) => [
+                            ...prev,
+                            { sender: "ai", text: `Error Jaringan: ${err.message || String(err)}` },
+                          ]);
+                        } finally {
+                          setChatLoading(false);
+                        }
+                      }}
+                      className="flex gap-2 shrink-0 pt-2 border-t-2 border-dashed border-gray-200"
+                    >
+                      <BrutalInput
+                        type="text"
+                        placeholder="Ketik pertanyaan atau perintah (misal: 'buat tugas QA UI besok')"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        disabled={chatLoading}
+                        required
+                        className="flex-1"
+                      />
+                      <BrutalButton type="submit" variant="primary" disabled={chatLoading} leftIcon={<Send size={14} />}>
+                        Kirim
+                      </BrutalButton>
+                    </form>
+                  </div>
+                )}
+
                 {/* 1. Task Generator View */}
                 {aiBrief && !aiRiskResult && !aiSummaryResult && (
                   <div className="space-y-4">
@@ -1328,7 +1527,7 @@ ${aiRiskResult.escalationMessage}`,
                     </div>
                     <p>
                       <span className="font-black text-brutal-black">{a.actor?.full_name || "Sistem"}</span>{" "}
-                      melakukan operasi pada <span className="underline">{a.entity_type}</span>.
+                      {formatActivityDescription(a)}
                     </p>
                   </div>
                 ))}
@@ -1486,10 +1685,10 @@ ${aiRiskResult.escalationMessage}`,
             <div className="flex items-center justify-between border-b-4 border-brutal-black pb-2 mb-6">
               <h2 className="text-2xl font-black uppercase flex items-center gap-2">
                 <ListTodo className="text-brutal-blue" />
-                Tambah Tugas Baru
+                {editingTaskId ? "Edit Rincian Tugas" : "Tambah Tugas Baru"}
               </h2>
               <button
-                onClick={() => setIsTaskModalOpen(false)}
+                onClick={handleCloseTaskModal}
                 className="border-2 border-brutal-black p-1 bg-white hover:bg-gray-100 rounded-lg cursor-pointer"
               >
                 <X size={18} />
@@ -1604,11 +1803,11 @@ ${aiRiskResult.escalationMessage}`,
               </div>
 
               <div className="pt-2 flex gap-3">
-                <BrutalButton type="button" variant="secondary" onClick={() => setIsTaskModalOpen(false)} className="flex-1 uppercase font-black">
+                <BrutalButton type="button" variant="secondary" onClick={handleCloseTaskModal} className="flex-1 uppercase font-black">
                   Cancel
                 </BrutalButton>
                 <BrutalButton type="submit" variant="primary" className="flex-1 uppercase font-black" isLoading={taskLoading}>
-                  Simpan Tugas
+                  {editingTaskId ? "Simpan Perubahan" : "Simpan Tugas"}
                 </BrutalButton>
               </div>
             </form>
@@ -1685,168 +1884,209 @@ ${aiRiskResult.escalationMessage}`,
 
       {/* --- TASK DETAIL MODAL --- */}
       {selectedTask && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl bg-brutal-soft-bg border-4 border-brutal-black p-6 md:p-8 rounded-2xl shadow-brutal-lg max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="flex flex-col w-[85vw] max-w-[85vw] h-[85vh] max-h-[85vh] bg-brutal-soft-bg border-4 border-brutal-black rounded-2xl shadow-brutal-xl overflow-hidden">
             
-            {/* Left: Task parameters details */}
-            <div className="md:col-span-2 space-y-4">
-              <div className="flex items-center justify-between border-b-2 border-dashed border-gray-200 pb-2 mb-2">
-                <h3 className="text-xl font-black text-brutal-black">{selectedTask.title}</h3>
-                <button
-                  onClick={() => setSelectedTask(null)}
-                  className="border-2 border-brutal-black p-1 bg-white hover:bg-gray-100 rounded-lg cursor-pointer md:hidden"
-                >
-                  <X size={16} />
-                </button>
+            {/* Header */}
+            <div className="flex items-center justify-between border-b-4 border-brutal-black p-5 md:p-6 bg-white shrink-0">
+              <div className="flex items-center gap-3">
+                <h3 className="text-xl md:text-2xl font-black text-brutal-black line-clamp-1">{selectedTask.title}</h3>
+                <span className="text-[10px] font-black uppercase bg-brutal-yellow border border-brutal-black px-2 py-0.5 rounded shadow-brutal-xs">
+                  {selectedTask.priority}
+                </span>
               </div>
-
-              <p className="text-xs font-bold text-gray-600 leading-normal p-3 bg-white border border-brutal-black rounded-lg">
-                {selectedTask.description || "No description provided."}
-              </p>
-
-              {/* Acceptance Criteria */}
-              {selectedTask.acceptance_criteria && selectedTask.acceptance_criteria.length > 0 && (
-                <BrutalCard className="bg-white p-4">
-                  <h4 className="text-xs font-black uppercase text-brutal-black mb-2 flex items-center gap-1.5">
-                    <CheckCircle2 size={16} className="text-brutal-mint" />
-                    Checklist Kriteria Penyelesaian
-                  </h4>
-                  <ul className="space-y-1.5 text-xs text-gray-600 font-bold">
-                    {selectedTask.acceptance_criteria.map((c, idx) => (
-                      <li key={idx} className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-brutal-black shrink-0" />
-                        {c}
-                      </li>
-                    ))}
-                  </ul>
-                </BrutalCard>
-              )}
-
-              {/* Komentar Tugas timeline */}
-              <BrutalCard className="bg-white p-4 space-y-4">
-                <h4 className="text-xs font-black uppercase text-brutal-black flex items-center gap-1.5">
-                  <MessageSquare size={16} className="text-brutal-blue" />
-                  Komentar Tugas ({comments.length})
-                </h4>
-
-                <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
-                  {comments.length === 0 ? (
-                    <p className="text-[10px] text-gray-400 py-2 text-center">Belum ada komentar.</p>
-                  ) : (
-                    comments.map((c) => (
-                      <div key={c.id} className="p-2.5 border border-brutal-black rounded bg-gray-50 text-xs">
-                        <div className="flex justify-between items-center gap-2 mb-1 text-[9px] text-gray-400 font-bold uppercase">
-                          <span className="text-brutal-black font-black">{c.profiles?.full_name || "Anggota Tim"}</span>
-                          <span>{new Date(c.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
-                        </div>
-                        <p className="font-bold text-gray-600">{c.content}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <form onSubmit={handlePostComment} className="flex gap-2">
-                  <BrutalInput
-                    type="text"
-                    required
-                    placeholder="Tulis pertanyaan atau pembaruan tugas..."
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    className="flex-1 p-2 text-xs"
-                  />
-                  <BrutalButton type="submit" variant="primary" size="sm" className="uppercase font-black text-xs shrink-0 py-1" isLoading={commentLoading}>
-                    Kirim
-                  </BrutalButton>
-                </form>
-              </BrutalCard>
+              <button
+                onClick={() => setSelectedTask(null)}
+                className="border-2 border-brutal-black p-1.5 bg-white hover:bg-gray-100 rounded-xl cursor-pointer"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            {/* Right: Task state transitions */}
-            <div className="md:col-span-1 flex flex-col justify-between">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b-2 border-dashed border-gray-200 pb-2">
-                  <h3 className="text-sm font-black uppercase flex items-center gap-1">
-                    <Settings size={16} />
-                    Detail Status
-                  </h3>
-                  <button
-                    onClick={() => setSelectedTask(null)}
-                    className="border-2 border-brutal-black p-1 bg-white hover:bg-gray-100 rounded-lg cursor-pointer"
-                  >
-                    <X size={16} />
-                  </button>
+            {/* Scrollable Body Content */}
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-6 p-6 md:p-8 overflow-y-auto">
+              
+              {/* Left Column: Details, Acceptance Criteria, comments */}
+              <div className="md:col-span-2 space-y-5">
+                <div>
+                  <h4 className="text-xs font-black uppercase text-gray-400 mb-2">Deskripsi Tugas</h4>
+                  <p className="text-xs font-bold text-gray-600 leading-relaxed p-4 bg-white border-2 border-brutal-black rounded-xl shadow-brutal-xs">
+                    {selectedTask.description || "Tidak ada deskripsi yang disediakan."}
+                  </p>
                 </div>
 
-                <div className="space-y-2 text-xs font-bold text-gray-500">
-                  <div className="flex justify-between">
-                    <span>STATUS:</span>
-                    <span className="font-black text-brutal-black uppercase">{selectedTask.status.replace("_", " ")}</span>
+                {/* Acceptance Criteria */}
+                {selectedTask.acceptance_criteria && selectedTask.acceptance_criteria.length > 0 && (
+                  <BrutalCard className="bg-white p-4">
+                    <h4 className="text-xs font-black uppercase text-brutal-black mb-3 flex items-center gap-1.5">
+                      <CheckCircle2 size={16} className="text-brutal-mint" />
+                      Checklist Kriteria Penyelesaian
+                    </h4>
+                    <ul className="space-y-2 text-xs text-gray-600 font-bold">
+                      {selectedTask.acceptance_criteria.map((c, idx) => (
+                        <li key={idx} className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-brutal-black shrink-0" />
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  </BrutalCard>
+                )}
+
+                {/* Komentar Tugas timeline */}
+                <BrutalCard className="bg-white p-4 space-y-4">
+                  <h4 className="text-xs font-black uppercase text-brutal-black flex items-center gap-1.5">
+                    <MessageSquare size={16} className="text-brutal-blue" />
+                    Komentar Tugas ({comments.length})
+                  </h4>
+
+                  <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+                    {comments.length === 0 ? (
+                      <p className="text-[10px] text-gray-400 py-2 text-center">Belum ada komentar.</p>
+                    ) : (
+                      comments.map((c) => (
+                        <div key={c.id} className="p-2.5 border border-brutal-black rounded bg-gray-50 text-xs">
+                          <div className="flex justify-between items-center gap-2 mb-1 text-[9px] text-gray-400 font-bold uppercase">
+                            <span className="text-brutal-black font-black">{c.profiles?.full_name || "Anggota Tim"}</span>
+                            <span>{new Date(c.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                          </div>
+                          <p className="font-bold text-gray-600">{c.content}</p>
+                        </div>
+                      ))
+                    )}
                   </div>
-                  <div className="flex justify-between">
-                    <span>PRIORITAS:</span>
-                    <span className="font-black text-brutal-black uppercase">{selectedTask.priority}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>ESTIMASI WAKTU:</span>
-                    <span className="font-black text-brutal-black">{selectedTask.estimated_hours || 0} Jam</span>
-                  </div>
-                  {selectedTask.due_date && (
-                    <div className="flex justify-between">
-                      <span>TENGGAT WAKTU:</span>
-                      <span className="font-black text-brutal-black">{new Date(selectedTask.due_date).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span>
+
+                  <form onSubmit={handlePostComment} className="flex gap-2 pt-2">
+                    <BrutalInput
+                      type="text"
+                      required
+                      placeholder="Tulis pertanyaan atau pembaruan tugas..."
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      className="flex-1 p-2 text-xs"
+                    />
+                    <BrutalButton type="submit" variant="primary" size="sm" className="uppercase font-black text-xs shrink-0 py-1" isLoading={commentLoading}>
+                      Kirim
+                    </BrutalButton>
+                  </form>
+                </BrutalCard>
+              </div>
+
+              {/* Right Column: Status info & Transitions */}
+              <div className="md:col-span-1 space-y-6">
+                <div>
+                  <h4 className="text-xs font-black uppercase text-gray-400 mb-2">Detail Status</h4>
+                  <BrutalCard className="bg-white p-4 space-y-3">
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-gray-500">STATUS:</span>
+                      <span className="font-black text-brutal-black uppercase bg-gray-100 border border-brutal-black px-2 py-0.5 rounded shadow-brutal-xs">{selectedTask.status.replace("_", " ")}</span>
                     </div>
-                  )}
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-gray-500">PRIORITAS:</span>
+                      <span className="font-black text-brutal-black uppercase bg-brutal-yellow/20 border border-brutal-black px-2 py-0.5 rounded shadow-brutal-xs">{selectedTask.priority}</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-gray-500">ESTIMASI WAKTU:</span>
+                      <span className="font-black text-brutal-black bg-brutal-blue/10 border border-brutal-black px-2 py-0.5 rounded shadow-brutal-xs">{selectedTask.estimated_hours || 0} Jam</span>
+                    </div>
+                    {selectedTask.due_date && (
+                      <div className="flex justify-between text-xs font-bold">
+                        <span className="text-gray-500">TENGGAT WAKTU:</span>
+                        <span className="font-black text-brutal-black bg-brutal-coral/10 border border-brutal-black px-2 py-0.5 rounded shadow-brutal-xs">{new Date(selectedTask.due_date).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span>
+                      </div>
+                    )}
+                  </BrutalCard>
                 </div>
 
-                <div className="border-t border-gray-300 pt-4 space-y-2.5">
-                  <h4 className="text-[10px] font-black uppercase text-gray-400">Ubah Status Tugas</h4>
-                  {selectedTask.status !== "in_progress" && selectedTask.status !== "done" && (
-                    <BrutalButton
-                      onClick={() => handleStatusTransition(selectedTask.id, "in_progress")}
-                      variant="primary"
-                      className="w-full text-xs font-black uppercase py-1.5 flex justify-center items-center gap-1"
-                      isLoading={transitioningTaskId === selectedTask.id}
-                      leftIcon={<Play size={12} />}
-                    >
-                      Mulai Kerja
-                    </BrutalButton>
-                  )}
-                  {selectedTask.status === "in_progress" && (
-                    <BrutalButton
-                      onClick={() => handleStatusTransition(selectedTask.id, "in_review")}
-                      variant="warning"
-                      className="w-full text-xs font-black uppercase py-1.5 flex justify-center items-center gap-1"
-                      isLoading={transitioningTaskId === selectedTask.id}
-                      leftIcon={<ArrowRight size={12} />}
-                    >
-                      Kirim untuk Ditinjau
-                    </BrutalButton>
-                  )}
-                  {selectedTask.status === "in_review" && (
-                    <BrutalButton
-                      onClick={() => handleStatusTransition(selectedTask.id, "done")}
-                      variant="success"
-                      className="w-full text-xs font-black uppercase py-1.5 flex justify-center items-center gap-1 text-brutal-black"
-                      isLoading={transitioningTaskId === selectedTask.id}
-                      leftIcon={<CheckCircle2 size={12} />}
-                    >
-                      Setujui & Selesaikan
-                    </BrutalButton>
-                  )}
-                  {selectedTask.status !== "blocked" && selectedTask.status !== "done" && (
-                    <BrutalButton
-                      onClick={() => handleStatusTransition(selectedTask.id, "blocked")}
-                      variant="danger"
-                      className="w-full text-xs font-black uppercase py-1.5 bg-brutal-coral text-white"
-                      isLoading={transitioningTaskId === selectedTask.id}
-                    >
-                      Tandai Terhambat
-                    </BrutalButton>
-                  )}
+                <div>
+                  <h4 className="text-xs font-black uppercase text-gray-400 mb-2">Tindakan Cepat</h4>
+                  <BrutalCard className="bg-white p-4 space-y-2.5">
+                    {selectedTask.status !== "in_progress" && selectedTask.status !== "done" && (
+                      <BrutalButton
+                        onClick={() => handleStatusTransition(selectedTask.id, "in_progress")}
+                        variant="primary"
+                        className="w-full text-xs font-black uppercase py-1.5 flex justify-center items-center gap-1"
+                        isLoading={transitioningTaskId === selectedTask.id}
+                        leftIcon={<Play size={12} />}
+                      >
+                        Mulai Kerja
+                      </BrutalButton>
+                    )}
+                    {selectedTask.status === "in_progress" && (
+                      <BrutalButton
+                        onClick={() => handleStatusTransition(selectedTask.id, "in_review")}
+                        variant="warning"
+                        className="w-full text-xs font-black uppercase py-1.5 flex justify-center items-center gap-1"
+                        isLoading={transitioningTaskId === selectedTask.id}
+                        leftIcon={<ArrowRight size={12} />}
+                      >
+                        Kirim untuk Ditinjau
+                      </BrutalButton>
+                    )}
+                    {selectedTask.status === "in_review" && (
+                      <BrutalButton
+                        onClick={() => handleStatusTransition(selectedTask.id, "done")}
+                        variant="success"
+                        className="w-full text-xs font-black uppercase py-1.5 flex justify-center items-center gap-1 text-brutal-black"
+                        isLoading={transitioningTaskId === selectedTask.id}
+                        leftIcon={<CheckCircle2 size={12} />}
+                      >
+                        Setujui & Selesaikan
+                      </BrutalButton>
+                    )}
+                    {selectedTask.status !== "blocked" && selectedTask.status !== "done" && (
+                      <BrutalButton
+                        onClick={() => handleStatusTransition(selectedTask.id, "blocked")}
+                        variant="danger"
+                        className="w-full text-xs font-black uppercase py-1.5 bg-brutal-coral text-white"
+                        isLoading={transitioningTaskId === selectedTask.id}
+                      >
+                        Tandai Terhambat
+                      </BrutalButton>
+                    )}
+                  </BrutalCard>
                 </div>
               </div>
 
-              <div className="mt-6 border-t border-gray-300 pt-4 flex justify-end">
+            </div>
+
+            {/* Footer Action Controls */}
+            <div className="border-t-4 border-brutal-black p-5 md:p-6 bg-white flex flex-wrap justify-between items-center gap-2 shrink-0">
+              <div>
+                {canDeleteTask && (
+                  <BrutalButton
+                    onClick={() => handleDeleteTask(selectedTask.id)}
+                    variant="danger"
+                    className="uppercase font-black text-xs flex items-center gap-1.5"
+                    leftIcon={<Trash2 size={14} />}
+                  >
+                    Hapus Tugas
+                  </BrutalButton>
+                )}
+              </div>
+              <div className="flex gap-2.5">
+                {canEditTask && (
+                  <BrutalButton
+                    onClick={() => {
+                      setEditingTaskId(selectedTask.id);
+                      setTaskTitle(selectedTask.title || "");
+                      setTaskDescription(selectedTask.description || "");
+                      setTaskPriority(selectedTask.priority || "medium");
+                      setTaskAssignee(selectedTask.assignee_id || "");
+                      setTaskMilestone(selectedTask.milestone_id || "");
+                      setTaskDueDate(selectedTask.due_date ? selectedTask.due_date.split("T")[0] : "");
+                      setTaskEstHours(selectedTask.estimated_hours ? selectedTask.estimated_hours.toString() : "");
+                      setTaskCriteria(selectedTask.acceptance_criteria ? selectedTask.acceptance_criteria.join("\n") : "");
+                      setSelectedTask(null);
+                      setIsTaskModalOpen(true);
+                    }}
+                    variant="primary"
+                    className="uppercase font-black text-xs flex items-center gap-1.5"
+                    leftIcon={<Edit3 size={14} />}
+                  >
+                    Edit Tugas
+                  </BrutalButton>
+                )}
                 <BrutalButton onClick={() => setSelectedTask(null)} variant="secondary" className="uppercase font-black text-xs">
                   Tutup Detail
                 </BrutalButton>

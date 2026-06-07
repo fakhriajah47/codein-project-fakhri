@@ -17,9 +17,10 @@ import {
 interface AppSidebarProps {
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
+  className?: string;
 }
 
-export const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, setCollapsed }) => {
+export const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, setCollapsed, className }) => {
   const pathname = usePathname();
 
   const navItems = [
@@ -35,7 +36,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, setCollapsed 
     <aside
       className={`bg-white border-r-4 border-brutal-black flex flex-col transition-all duration-300 z-20 ${
         collapsed ? "w-20" : "w-64"
-      }`}
+      } ${className || ""}`}
     >
       {/* Logo Area */}
       <div className="h-16 border-b-4 border-brutal-black flex items-center justify-between px-4 bg-brutal-yellow">

@@ -3,11 +3,14 @@
 import React, { useState, useEffect } from "react";
 import { useWorkspace } from "@/components/layout/workspace-provider";
 import { BrutalCard } from "@/components/ui/brutal-card";
+import { BrutalButton } from "@/components/ui/brutal-button";
 import { BrutalBadge, BrutalBadgeVariant } from "@/components/ui/brutal-badge";
+import { BrutalTextarea } from "@/components/ui/brutal-textarea";
 import { LoadingState } from "@/components/shared/loading-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { WorkspaceDashboardData } from "@/lib/services/dashboard-service";
+import { formatActivityActionLabel, formatActivityDescription, formatActivityMetadata } from "@/lib/utils/activity-formatter";
 import {
   Folder,
   CheckSquare,
@@ -16,6 +19,8 @@ import {
   Activity,
   Calendar,
   Sparkles,
+  SendHorizontal,
+  Bot,
 } from "lucide-react";
 
 export default function WorkspaceDashboardPage() {
@@ -23,6 +28,84 @@ export default function WorkspaceDashboardPage() {
   const [data, setData] = useState<WorkspaceDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // AI advisor state
+  const [aiAdvice, setAiAdvice] = useState<any | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  // Conversational Workspace Query state
+  const [aiCommand, setAiCommand] = useState("");
+  const [aiCommandLoading, setAiCommandLoading] = useState(false);
+  const [aiCommandError, setAiCommandError] = useState<string | null>(null);
+  const [aiCommandResult, setAiCommandResult] = useState<any | null>(null);
+
+  const fetchWorkspaceAdvice = async (force = false) => {
+    if (!activeWorkspace) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const response = await fetch("/api/ai/workspace-advisor", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId: activeWorkspace.id,
+          forceRegenerate: force,
+        }),
+      });
+      const resData = await response.json();
+
+      if (!response.ok || !resData.success) {
+        setAiError(resData.message || "Gagal melakukan audit kesehatan AI.");
+      } else {
+        setAiAdvice(resData.data);
+      }
+    } catch (err: any) {
+      setAiError(err?.message || "Kesalahan koneksi audit AI.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const runProjectQuery = async () => {
+    if (!activeWorkspace || !aiCommand.trim()) return;
+    setAiCommandLoading(true);
+    setAiCommandError(null);
+    try {
+      const response = await fetch("/api/ai/project-query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId: activeWorkspace.id,
+          message: aiCommand.trim(),
+        }),
+      });
+      const resData = await response.json();
+
+      if (!response.ok || !resData.success) {
+        setAiCommandError(resData.message || "AI gagal memproses instruksi workspace.");
+      } else {
+        setAiCommandResult(resData.data);
+        if (resData.data?.created) {
+          setAiCommand("");
+          // Refresh dashboard data to show the newly created item
+          const statsResponse = await fetch(`/api/workspaces/${activeWorkspace.id}/dashboard`);
+          const statsData = await statsResponse.json();
+          if (statsResponse.ok && statsData.success) {
+            setData(statsData.data);
+          }
+        }
+      }
+    } catch (err: any) {
+      setAiCommandError(err?.message || "Kesalahan koneksi AI workspace.");
+    } finally {
+      setAiCommandLoading(false);
+    }
+  };
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -40,6 +123,10 @@ export default function WorkspaceDashboardPage() {
         }
 
         setData(resData.data);
+        
+        // Panggil audit kesehatan AI secara sekuensial setelah data statistik dimuat
+        // untuk menghindari tabrakan token refresh Supabase SSR
+        fetchWorkspaceAdvice(false);
       } catch (err: any) {
         setError(err?.message || "An unexpected error occurred.");
       } finally {
@@ -129,8 +216,112 @@ export default function WorkspaceDashboardPage() {
 
       {/* Main Grid content */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left Column: Workload & Project Health */}
+        {/* Left Column: AI Advisor & Tim Load */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Workspace Advisor AI (Gemini) */}
+          <BrutalCard className="bg-brutal-soft-bg border-2 border-brutal-black shadow-brutal-md">
+            <div className="flex items-center justify-between border-b-2 border-dashed border-brutal-black pb-3 mb-4">
+              <h2 className="text-lg font-black uppercase text-brutal-black flex items-center gap-2">
+                <Sparkles size={20} className="text-brutal-purple animate-pulse" />
+                Workspace Advisor AI (Gemini)
+              </h2>
+              <BrutalButton
+                size="sm"
+                variant="primary"
+                onClick={() => fetchWorkspaceAdvice(true)}
+                isLoading={aiLoading}
+                className="text-xs uppercase tracking-wider py-1 px-3 shrink-0 font-black"
+              >
+                Audit Ulang
+              </BrutalButton>
+            </div>
+
+            {aiLoading ? (
+              <div className="py-8 text-center space-y-2">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brutal-black" />
+                <p className="text-sm font-bold text-gray-600">Gemini sedang mengaudit seluruh proyek dan beban kerja tim...</p>
+              </div>
+            ) : aiError ? (
+              <div className="p-3.5 border-2 border-red-500 rounded-xl bg-red-50 text-red-700 text-xs font-bold">
+                {aiError}. Pastikan GEMINI_API_KEY valid.
+              </div>
+            ) : aiAdvice ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-4 p-3 border-2 border-brutal-black rounded-xl bg-white">
+                  <div>
+                    <div className="text-xs uppercase font-black text-gray-500">Skor Kesehatan</div>
+                    <div className="text-3xl font-black text-brutal-black">{aiAdvice.healthScore} / 100</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase font-black text-gray-500">Kondisi</div>
+                    <BrutalBadge
+                      variant={
+                        aiAdvice.workspaceHealth === "Excellent" || aiAdvice.workspaceHealth === "Good"
+                          ? "green"
+                          : aiAdvice.workspaceHealth === "Needs Attention"
+                          ? "yellow"
+                          : "red"
+                      }
+                      className="text-sm py-0.5 px-2 font-black uppercase"
+                    >
+                      {aiAdvice.workspaceHealth === "Excellent" && "Sangat Baik"}
+                      {aiAdvice.workspaceHealth === "Good" && "Baik"}
+                      {aiAdvice.workspaceHealth === "Needs Attention" && "Perlu Perhatian"}
+                      {aiAdvice.workspaceHealth === "Critical" && "Kritis"}
+                    </BrutalBadge>
+                  </div>
+                </div>
+
+                <div className="p-4 border-2 border-dashed border-gray-300 bg-white rounded-xl text-xs leading-relaxed font-bold text-gray-700 italic">
+                  &ldquo;{aiAdvice.advisoryNote}&rdquo;
+                </div>
+
+                {aiAdvice.keyAlerts && aiAdvice.keyAlerts.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-black uppercase text-red-600 flex items-center gap-1.5">
+                      <AlertTriangle size={14} /> Peringatan Utama
+                    </h3>
+                    <ul className="list-disc list-inside text-xs font-bold text-gray-600 space-y-1 pl-1">
+                      {aiAdvice.keyAlerts.map((alert: string, idx: number) => (
+                        <li key={idx} className="text-red-700 bg-red-50 p-2 rounded border border-red-100 flex items-start gap-2 text-left">
+                          <span className="shrink-0 mt-0.5">⚠️</span>
+                          <span>{alert}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {aiAdvice.recommendations && aiAdvice.recommendations.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-black uppercase text-brutal-black">Rekomendasi Tindakan</h3>
+                    <div className="space-y-2">
+                      {aiAdvice.recommendations.map((rec: any, idx: number) => {
+                        let urgencyVariant: BrutalBadgeVariant = "gray";
+                        if (rec.urgency === "medium") urgencyVariant = "yellow";
+                        if (rec.urgency === "high") urgencyVariant = "orange";
+                        if (rec.urgency === "urgent") urgencyVariant = "red";
+                        return (
+                          <div key={idx} className="p-3 border-2 border-brutal-black rounded-xl bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-left">
+                            <div className="space-y-1">
+                              <div className="font-extrabold text-brutal-black">{rec.action}</div>
+                              <div className="text-[10px] text-gray-500 font-bold uppercase">Target: {rec.target}</div>
+                            </div>
+                            <BrutalBadge variant={urgencyVariant} className="text-[9px] font-black uppercase py-0 px-2 self-start sm:self-center">
+                              {rec.urgency === "urgent" ? "Mendesak" : rec.urgency === "high" ? "Tinggi" : rec.urgency === "medium" ? "Sedang" : "Rendah"}
+                            </BrutalBadge>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm font-bold text-gray-500 text-center py-4">Belum ada audit kesehatan workspace.</p>
+            )}
+          </BrutalCard>
+
           {/* Workspace Member Workload Card */}
           <BrutalCard className="bg-white">
             <h2 className="text-lg font-black uppercase border-b-2 border-dashed border-gray-200 pb-2 mb-4 flex items-center gap-2">
@@ -229,8 +420,72 @@ export default function WorkspaceDashboardPage() {
           </BrutalCard>
         </div>
 
-        {/* Right Column: Recent Activity Logs */}
-        <div className="lg:col-span-1">
+        {/* Right Column: Conversational AI & Logs */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* Tanya & Kelola via AI */}
+          <BrutalCard className="bg-white border-2 border-brutal-black shadow-brutal-md">
+            <h2 className="text-lg font-black uppercase border-b-2 border-dashed border-gray-200 pb-2 mb-4 flex items-center gap-2">
+              <Bot size={20} className="text-brutal-blue" />
+              Tanya & Kelola via AI
+            </h2>
+            <div className="space-y-4">
+              <BrutalTextarea
+                value={aiCommand}
+                onChange={(e) => setAiCommand(e.target.value)}
+                rows={4}
+                placeholder='Tanya data project, atau buat perintah langsung: "buat task QA mobile urgent di project Website Company Profile assign ke saya"'
+                disabled={aiCommandLoading}
+                className="text-sm"
+              />
+              <div className="flex flex-col gap-3">
+                <p className="text-[10px] font-bold text-gray-500">
+                  Gemini membaca data workspace secara real-time dan dapat mengeksekusi aksi pembuatan project/task secara otomatis.
+                </p>
+                <BrutalButton
+                  type="button"
+                  variant="primary"
+                  onClick={runProjectQuery}
+                  isLoading={aiCommandLoading}
+                  disabled={!aiCommand.trim() || aiCommandLoading}
+                  className="text-xs uppercase tracking-wider py-2 px-4 shrink-0 font-black flex items-center justify-center gap-2 w-full"
+                  leftIcon={<SendHorizontal size={14} />}
+                >
+                  Jalankan AI
+                </BrutalButton>
+              </div>
+
+              {aiCommandError && (
+                <div className="p-3 border-2 border-red-500 rounded-xl bg-red-50 text-red-700 text-xs font-bold">
+                  {aiCommandError}
+                </div>
+              )}
+
+              {aiCommandResult && (
+                <div className="p-4 border-2 border-brutal-black rounded-xl bg-brutal-soft-bg space-y-2 text-left">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <BrutalBadge variant={aiCommandResult.created ? "green" : "blue"} className="text-[10px] font-black uppercase">
+                      {aiCommandResult.created ? "Aksi Berhasil" : "Jawaban AI"}
+                    </BrutalBadge>
+                    <span className="text-[10px] font-black uppercase text-gray-500">
+                      Tipe: {aiCommandResult.intent}
+                    </span>
+                  </div>
+                  <p className="text-sm font-bold text-gray-700 leading-relaxed">
+                    {aiCommandResult.answer}
+                  </p>
+                  {aiCommandResult.created && (
+                    <div className="text-xs font-black text-brutal-black border-t border-dashed border-gray-300 pt-2 mt-2">
+                      {aiCommandResult.created.type === "project"
+                        ? `Proyek Baru: ${aiCommandResult.created.name}`
+                        : `Tugas Baru: ${aiCommandResult.created.title} (${aiCommandResult.created.projectName})`}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </BrutalCard>
+
+          {/* Activity Logs */}
           <BrutalCard className="bg-white h-full flex flex-col">
             <h2 className="text-lg font-black uppercase border-b-2 border-dashed border-gray-200 pb-2 mb-4 flex items-center gap-2">
               <Activity size={20} className="text-brutal-coral" />
@@ -250,20 +505,8 @@ export default function WorkspaceDashboardPage() {
                     hour: "2-digit",
                     minute: "2-digit",
                   });
-
-                  // Simple translator for activities
-                  let actionLabel = activity.action.replace(".", " ");
-                  if (activity.action === "project.create") actionLabel = "BUAT PROYEK";
-                  if (activity.action === "project.update") actionLabel = "UPDATE PROYEK";
-                  if (activity.action === "task.create") actionLabel = "BUAT TUGAS";
-                  if (activity.action === "task.update") actionLabel = "UPDATE TUGAS";
-                  if (activity.action === "task.status") actionLabel = "STATUS TUGAS";
-                  if (activity.action === "comment.create") actionLabel = "BUAT KOMENTAR";
-
-                  let entityLabel = activity.entity_type;
-                  if (activity.entity_type === "project") entityLabel = "proyek";
-                  if (activity.entity_type === "task") entityLabel = "tugas";
-                  if (activity.entity_type === "comment") entityLabel = "komentar";
+                  const actionLabel = formatActivityActionLabel(activity.action);
+                  const metadataLabel = formatActivityMetadata(activity);
 
                   return (
                     <div
@@ -283,11 +526,11 @@ export default function WorkspaceDashboardPage() {
                         <span className="font-black text-brutal-black">
                           {activity.actor?.full_name || "Sistem"}
                         </span>{" "}
-                        melakukan pembaruan pada {entityLabel}.
+                        {formatActivityDescription(activity)}
                       </p>
-                      {activity.metadata && (activity.metadata as any).title && (
+                      {metadataLabel && (
                         <div className="text-[10px] text-gray-500 font-black truncate">
-                          Nama: {String((activity.metadata as any).title || (activity.metadata as any).name || "")}
+                          {metadataLabel}
                         </div>
                       )}
                     </div>

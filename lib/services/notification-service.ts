@@ -5,6 +5,52 @@ import { GmailIntegration } from "@/lib/integrations/gmail";
 import { IntegrationProvider, JsonRecord, NotificationLog } from "@/types";
 import { ActivityService } from "./activity-service";
 
+const MASKED_SECRET = "[securely-masked]";
+const SECRET_KEYS = new Set([
+  "webhookUrl",
+  "botToken",
+  "token",
+  "password",
+  "apiKey",
+  "authorization",
+  "secret",
+]);
+
+function sanitizeErrorMessage(message?: string | null): string | null {
+  if (!message) return null;
+  const secretValues = [
+    process.env.DISCORD_WEBHOOK_URL_DEFAULT,
+    process.env.DISCORD_WEBHOOK_URL,
+    process.env.TELEGRAM_BOT_TOKEN,
+    process.env.TELEGRAM_DEFAULT_CHAT_ID,
+    process.env.TELEGRAM_CHAT_ID,
+    process.env.SMTP_PASSWORD,
+    process.env.GEMINI_API_KEY,
+  ].filter(Boolean) as string[];
+
+  return secretValues.reduce(
+    (current, value) => current.replaceAll(value, MASKED_SECRET),
+    message
+  );
+}
+
+function sanitizePayload(payload: JsonRecord): JsonRecord {
+  return Object.fromEntries(
+    Object.entries(payload).map(([key, value]) => {
+      if (SECRET_KEYS.has(key)) {
+        return [key, MASKED_SECRET];
+      }
+      if (typeof value === "string") {
+        return [key, sanitizeErrorMessage(value) || value];
+      }
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return [key, sanitizePayload(value as JsonRecord)];
+      }
+      return [key, value];
+    })
+  );
+}
+
 export class NotificationService {
   private static async logNotification(params: {
     workspaceId: string;
@@ -24,9 +70,9 @@ export class NotificationService {
           project_id: params.projectId || null,
           provider: params.provider,
           event_type: params.eventType,
-          payload: params.payload,
+          payload: sanitizePayload(params.payload),
           status: params.status,
-          error_message: params.errorMessage || null,
+          error_message: sanitizeErrorMessage(params.errorMessage),
           sent_at: params.status === "sent" ? new Date().toISOString() : null,
         })
         .select()
@@ -54,7 +100,7 @@ export class NotificationService {
         .from("notification_logs")
         .update({
           status,
-          error_message: errorMessage || null,
+          error_message: sanitizeErrorMessage(errorMessage),
           sent_at: status === "sent" ? new Date().toISOString() : null,
         })
         .eq("id", logId);
@@ -84,12 +130,15 @@ export class NotificationService {
         .eq("is_enabled", true)
         .maybeSingle();
 
-      if (!setting || !setting.config?.webhookUrl) {
+      let webhookUrl = setting?.config?.webhookUrl;
+      if (!webhookUrl) {
+        webhookUrl = process.env.DISCORD_WEBHOOK_URL_DEFAULT || process.env.DISCORD_WEBHOOK_URL;
+      }
+
+      if (!webhookUrl) {
         console.log("Discord notification skipped: not configured or disabled.");
         return false;
       }
-
-      const webhookUrl = setting.config.webhookUrl;
       
       // Create pending log
       log = await this.logNotification({
@@ -142,12 +191,18 @@ export class NotificationService {
         .eq("is_enabled", true)
         .maybeSingle();
 
-      if (!setting || !setting.config?.botToken || !setting.config?.chatId) {
+      let botToken = setting?.config?.botToken;
+      let chatId = setting?.config?.chatId;
+
+      if (!botToken || !chatId) {
+        botToken = process.env.TELEGRAM_BOT_TOKEN;
+        chatId = process.env.TELEGRAM_DEFAULT_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+      }
+
+      if (!botToken || !chatId) {
         console.log("Telegram notification skipped: not configured or disabled.");
         return false;
       }
-
-      const { botToken, chatId } = setting.config;
 
       // Create pending log
       log = await this.logNotification({
@@ -278,8 +333,11 @@ export class NotificationService {
         .maybeSingle();
 
       if (!setting) {
-        console.log("Gmail notification skipped: integration is disabled or not configured.");
-        return false;
+        // Fallback to env SMTP check
+        if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+          console.log("Gmail notification skipped: integration is disabled or not configured.");
+          return false;
+        }
       }
 
       // Create pending log
@@ -358,13 +416,16 @@ export class NotificationService {
 
         // Save integration settings if successful
         const supabase = await createClient();
-        await supabase.from("integration_settings").upsert({
-          workspace_id: workspaceId,
-          provider: "discord",
-          config: { webhookUrl },
-          is_enabled: true,
-          created_by: user?.id,
-        });
+        await supabase.from("integration_settings").upsert(
+          {
+            workspace_id: workspaceId,
+            provider: "discord",
+            config: { webhookUrl },
+            is_enabled: true,
+            created_by: user?.id,
+          },
+          { onConflict: "workspace_id,provider" }
+        );
       }
       return result.success;
     } catch (err) {
@@ -376,7 +437,7 @@ export class NotificationService {
   static async testTelegramConnection(workspaceId: string, botToken: string, chatId: string): Promise<boolean> {
     try {
       const { data: { user } } = await (await createClient()).auth.getUser();
-      const testMsg = `✅ *Project Management Telegram connected.*
+      const testMsg = `Project Management Telegram connected.
       
 Workspace status: Ready for critical project alerts.`;
 
@@ -392,13 +453,16 @@ Workspace status: Ready for critical project alerts.`;
 
         // Save integration settings if successful
         const supabase = await createClient();
-        await supabase.from("integration_settings").upsert({
-          workspace_id: workspaceId,
-          provider: "telegram",
-          config: { botToken, chatId },
-          is_enabled: true,
-          created_by: user?.id,
-        });
+        await supabase.from("integration_settings").upsert(
+          {
+            workspace_id: workspaceId,
+            provider: "telegram",
+            config: { botToken, chatId },
+            is_enabled: true,
+            created_by: user?.id,
+          },
+          { onConflict: "workspace_id,provider" }
+        );
       }
       return result.success;
     } catch (err) {
@@ -416,13 +480,16 @@ Workspace status: Ready for critical project alerts.`;
 
       // Save integration settings if SMTP user details exist in env
       const supabase = await createClient();
-      await supabase.from("integration_settings").upsert({
-        workspace_id: workspaceId,
-        provider: "gmail",
-        config: { connectedEmail: userEmail },
-        is_enabled: true,
-        created_by: user?.id,
-      });
+      await supabase.from("integration_settings").upsert(
+        {
+          workspace_id: workspaceId,
+          provider: "gmail",
+          config: { connectedEmail: userEmail },
+          is_enabled: true,
+          created_by: user?.id,
+        },
+        { onConflict: "workspace_id,provider" }
+      );
 
       return true;
     } catch (err) {

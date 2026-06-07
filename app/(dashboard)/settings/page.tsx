@@ -8,7 +8,7 @@ import { BrutalInput } from "@/components/ui/brutal-input";
 import { BrutalAlert } from "@/components/ui/brutal-alert";
 import { createClient } from "@/lib/supabase/client";
 import { LoadingState } from "@/components/shared/loading-state";
-import { Settings, User, Building, ShieldCheck } from "lucide-react";
+import { Settings, User, Building, ShieldCheck, Users } from "lucide-react";
 
 export default function SettingsPage() {
   const { activeWorkspace, workspaceRole } = useWorkspace();
@@ -293,6 +293,34 @@ export default function SettingsPage() {
           </BrutalCard>
         )}
       </div>
+
+      {/* Team Management Section */}
+      {activeWorkspace && (
+        <BrutalCard className="bg-white">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b-2 border-dashed border-gray-200 pb-4 mb-4">
+            <div>
+              <h2 className="text-lg font-black uppercase flex items-center gap-2">
+                <Users size={20} className="text-brutal-blue" />
+                Manajemen Anggota & Tim Workspace
+              </h2>
+              <p className="text-xs font-bold text-gray-500 mt-1">
+                Atur kolaborator, ubah hak akses (Owner, Manager, Member, Viewer), atau undang rekan tim baru ke dalam workspace ini.
+              </p>
+            </div>
+            <BrutalButton
+              onClick={() => window.location.href = "/team"}
+              variant="primary"
+              className="uppercase font-black shrink-0"
+              leftIcon={<Users size={16} />}
+            >
+              Undang & Kelola Tim
+            </BrutalButton>
+          </div>
+          <div className="bg-brutal-soft-bg border-2 border-brutal-black rounded-xl p-4 text-xs font-bold text-gray-600">
+            💡 Untuk mengalokasikan beban kerja dengan benar ke anggota tim dan memantau kinerja proyek, pastikan setiap anggota tim terdaftar dengan alamat email yang sesuai di workspace ini.
+          </div>
+        </BrutalCard>
+      )}
     </div>
   );
 }

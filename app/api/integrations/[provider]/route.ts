@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { ActivityService } from "@/lib/services/activity-service";
+import { disconnectIntegrationSchema } from "@/lib/validators/integration.schema";
 
 export async function DELETE(
   request: NextRequest,
@@ -17,15 +19,10 @@ export async function DELETE(
     }
 
     
-    // Parse workspaceId from search params
-    const workspaceId = request.nextUrl.searchParams.get("workspaceId");
-
-    if (!workspaceId) {
-      return NextResponse.json(
-        { success: false, message: "Missing required parameter workspaceId" },
-        { status: 400 }
-      );
-    }
+    const { workspaceId, provider: validatedProvider } = disconnectIntegrationSchema.parse({
+      workspaceId: request.nextUrl.searchParams.get("workspaceId"),
+      provider,
+    });
 
     const { data: member, error: memberError } = await supabase
       .from("workspace_members")
@@ -47,15 +44,31 @@ export async function DELETE(
       .from("integration_settings")
       .delete()
       .eq("workspace_id", workspaceId)
-      .eq("provider", provider);
+      .eq("provider", validatedProvider);
 
     if (error) throw error;
 
+    await ActivityService.logActivity({
+      workspaceId,
+      actorId: user.id,
+      action: "integration.disconnected",
+      entityType: "integration",
+      entityId: workspaceId,
+      metadata: { provider: validatedProvider },
+    });
+
     return NextResponse.json({
       success: true,
-      message: `${provider} integration disconnected successfully`,
+      message: `${validatedProvider} integration disconnected successfully`,
     });
   } catch (err: any) {
+    if (err?.name === "ZodError") {
+      return NextResponse.json(
+        { success: false, message: "Invalid integration disconnect payload", error: { code: "VALIDATION_ERROR", details: err.flatten?.().fieldErrors } },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       { success: false, message: `Failed to disconnect ${provider}`, error: { code: "INTERNAL_ERROR", details: err?.message } },
       { status: 500 }

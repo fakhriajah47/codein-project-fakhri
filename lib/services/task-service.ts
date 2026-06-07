@@ -195,6 +195,14 @@ export class TaskService {
       // Recalculate progress
       await ProjectService.recalculateProjectProgress(projectId);
 
+      // Trigger background AI Risk analysis
+      if (process.env.GEMINI_API_KEY) {
+        import("./ai-service").then(({ AIService }) => {
+          AIService.generateRiskAnalysis(workspaceId, projectId)
+            .catch(err => console.error("Background AI Risk Analysis failed:", err));
+        });
+      }
+
       return task as Task;
     } catch (err) {
       console.error("Failed to create task:", err);
@@ -242,6 +250,14 @@ export class TaskService {
       // Recalculate progress if status or milestone changes
       if (params.status) {
         await ProjectService.recalculateProjectProgress(taskBefore.project_id);
+
+        // Trigger background AI Risk analysis
+        if (process.env.GEMINI_API_KEY) {
+          import("./ai-service").then(({ AIService }) => {
+            AIService.generateRiskAnalysis(taskBefore.workspace_id, taskBefore.project_id)
+              .catch(err => console.error("Background AI Risk Analysis failed:", err));
+          });
+        }
       }
 
       return data as Task;
@@ -297,6 +313,14 @@ export class TaskService {
       // Recalculate progress
       await ProjectService.recalculateProjectProgress(taskBefore.project_id);
 
+      // Trigger background AI Risk analysis
+      if (process.env.GEMINI_API_KEY) {
+        import("./ai-service").then(({ AIService }) => {
+          AIService.generateRiskAnalysis(taskBefore.workspace_id, taskBefore.project_id)
+            .catch(err => console.error("Background AI Risk Analysis failed:", err));
+        });
+      }
+
       return data as Task;
     } catch (err) {
       console.error("Failed to update task status:", err);
@@ -337,6 +361,14 @@ export class TaskService {
 
       // Recalculate progress
       await ProjectService.recalculateProjectProgress(task.project_id);
+
+      // Trigger background AI Risk analysis
+      if (process.env.GEMINI_API_KEY) {
+        import("./ai-service").then(({ AIService }) => {
+          AIService.generateRiskAnalysis(task.workspace_id, task.project_id)
+            .catch(err => console.error("Background AI Risk Analysis failed:", err));
+        });
+      }
 
       return true;
     } catch (err) {

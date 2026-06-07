@@ -2,6 +2,32 @@ import { createClient } from "@/lib/supabase/server";
 import { ActivityLog } from "@/types";
 
 export class ActivityService {
+  private static async hydrateActors(items: any[]): Promise<ActivityLog[]> {
+    if (items.length === 0) return [];
+
+    const actorIds = Array.from(
+      new Set(items.map((item) => item.actor_id).filter((actorId): actorId is string => typeof actorId === "string"))
+    );
+    if (actorIds.length === 0) return items as ActivityLog[];
+
+    const supabase = await createClient();
+    const { data: profiles, error } = await supabase
+      .from("profiles")
+      .select("id, user_id, full_name, avatar_url, job_title")
+      .in("user_id", actorIds);
+
+    if (error) {
+      console.error("Error hydrating activity actors:", error);
+      return items as ActivityLog[];
+    }
+
+    const profileByUserId = new Map((profiles || []).map((profile) => [profile.user_id, profile]));
+    return items.map((item) => ({
+      ...item,
+      actor: item.actor_id ? profileByUserId.get(item.actor_id) : undefined,
+    })) as ActivityLog[];
+  }
+
   static async logActivity(params: {
     workspaceId: string;
     projectId?: string | null;
@@ -56,10 +82,7 @@ export class ActivityService {
       const supabase = await createClient();
       const { data, error } = await supabase
         .from("activity_logs")
-        .select(`
-          *,
-          actor:profiles!activity_logs_actor_id_fkey(full_name, avatar_url, job_title)
-        `)
+        .select("*")
         .eq("project_id", projectId)
         .order("created_at", { ascending: false });
 
@@ -68,17 +91,7 @@ export class ActivityService {
         return [];
       }
 
-      // Map actor from profiles relation join
-      return (data || []).map((item: any) => ({
-        ...item,
-        actor: item.actor ? {
-          id: item.actor_id,
-          user_id: item.actor_id,
-          full_name: item.actor.full_name,
-          avatar_url: item.actor.avatar_url,
-          job_title: item.actor.job_title,
-        } : undefined,
-      })) as ActivityLog[];
+      return await this.hydrateActors(data || []);
     } catch (err) {
       console.error("Failed to get project activities:", err);
       return [];
@@ -90,10 +103,7 @@ export class ActivityService {
       const supabase = await createClient();
       const { data, error } = await supabase
         .from("activity_logs")
-        .select(`
-          *,
-          actor:profiles!activity_logs_actor_id_fkey(full_name, avatar_url, job_title)
-        `)
+        .select("*")
         .eq("task_id", taskId)
         .order("created_at", { ascending: false });
 
@@ -102,16 +112,7 @@ export class ActivityService {
         return [];
       }
 
-      return (data || []).map((item: any) => ({
-        ...item,
-        actor: item.actor ? {
-          id: item.actor_id,
-          user_id: item.actor_id,
-          full_name: item.actor.full_name,
-          avatar_url: item.actor.avatar_url,
-          job_title: item.actor.job_title,
-        } : undefined,
-      })) as ActivityLog[];
+      return await this.hydrateActors(data || []);
     } catch (err) {
       console.error("Failed to get task activities:", err);
       return [];
@@ -123,10 +124,7 @@ export class ActivityService {
       const supabase = await createClient();
       const { data, error } = await supabase
         .from("activity_logs")
-        .select(`
-          *,
-          actor:profiles!activity_logs_actor_id_fkey(full_name, avatar_url, job_title)
-        `)
+        .select("*")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false })
         .limit(limit);
@@ -136,16 +134,7 @@ export class ActivityService {
         return [];
       }
 
-      return (data || []).map((item: any) => ({
-        ...item,
-        actor: item.actor ? {
-          id: item.actor_id,
-          user_id: item.actor_id,
-          full_name: item.actor.full_name,
-          avatar_url: item.actor.avatar_url,
-          job_title: item.actor.job_title,
-        } : undefined,
-      })) as ActivityLog[];
+      return await this.hydrateActors(data || []);
     } catch (err) {
       console.error("Failed to get workspace activities:", err);
       return [];

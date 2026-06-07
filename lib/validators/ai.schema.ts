@@ -54,6 +54,7 @@ export type AIExecutiveSummaryResponse = z.infer<typeof aiExecutiveSummaryRespon
 export const generateDailyFocusInputSchema = z.object({
   workspaceId: z.string().uuid("Invalid workspace ID."),
   limit: z.coerce.number().int().min(1).max(10).default(5),
+  forceRegenerate: z.boolean().optional().default(false),
 });
 
 export const aiDailyFocusResponseSchema = z.object({

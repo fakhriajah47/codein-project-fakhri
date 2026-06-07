@@ -1,6 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { saveTelegramIntegrationSchema } from "@/lib/validators/integration.schema";
+import { MASK_PLACEHOLDER, saveTelegramIntegrationSchema } from "@/lib/validators/integration.schema";
+
+async function resolveTelegramConfig(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  botToken: string,
+  chatId: string
+) {
+  if (!botToken.includes(MASK_PLACEHOLDER)) {
+    return { botToken, chatId };
+  }
+
+  const { data: existing } = await supabase
+    .from("integration_settings")
+    .select("config")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", "telegram")
+    .maybeSingle();
+
+  const existingBotToken = existing?.config?.botToken;
+  if (typeof existingBotToken === "string" && existingBotToken.length > 0) {
+    return {
+      botToken: existingBotToken,
+      chatId: chatId || existing?.config?.chatId || "",
+    };
+  }
+
+  const defaultBotToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (defaultBotToken) {
+    return {
+      botToken: defaultBotToken,
+      chatId: chatId || process.env.TELEGRAM_CHAT_ID || "",
+    };
+  }
+
+  throw new Error("Saved Telegram bot token is missing. Please enter the full bot token again.");
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,21 +65,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let finalBotToken = botToken;
-    let finalChatId = chatId;
-    if (botToken.includes("****************")) {
-      const { data: existing } = await supabase
-        .from("integration_settings")
-        .select("config")
-        .eq("workspace_id", workspaceId)
-        .eq("provider", "telegram")
-        .maybeSingle();
-
-      if (existing?.config?.botToken) {
-        finalBotToken = existing.config.botToken;
-        finalChatId = existing.config.chatId || finalChatId;
-      }
-    }
+    const { botToken: finalBotToken, chatId: finalChatId } = await resolveTelegramConfig(
+      supabase,
+      workspaceId,
+      botToken,
+      chatId
+    );
 
     const { data, error } = await supabase
       .from("integration_settings")
@@ -65,7 +92,7 @@ export async function POST(request: NextRequest) {
       data: {
         ...data,
         config: {
-          botToken: finalBotToken.slice(0, 10) + "****************",
+          botToken: finalBotToken.slice(0, 10) + MASK_PLACEHOLDER,
           chatId: finalChatId,
         },
       },

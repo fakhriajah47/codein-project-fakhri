@@ -43,6 +43,7 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/dashboard") ||
     request.nextUrl.pathname.startsWith("/projects") ||
     request.nextUrl.pathname.startsWith("/my-work") ||
+    request.nextUrl.pathname.startsWith("/reports") ||
     request.nextUrl.pathname.startsWith("/integrations") ||
     request.nextUrl.pathname.startsWith("/activity") ||
     request.nextUrl.pathname.startsWith("/settings") ||

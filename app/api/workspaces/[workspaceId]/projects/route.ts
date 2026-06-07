@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ProjectService } from "@/lib/services/project-service";
 import { createClient } from "@/lib/supabase/server";
+import { NotificationService } from "@/lib/services/notification-service";
 
 export async function GET(
   request: NextRequest,
@@ -119,6 +120,17 @@ export async function POST(
         { status: 500 }
       );
     }
+
+    const notificationMessage = `🚀 **Proyek Baru Dibuat!**
+    
+**Proyek:** ${project.name}
+**Prioritas:** ${project.priority.toUpperCase()}
+**Status:** ${project.status.toUpperCase()}`;
+
+    Promise.all([
+      NotificationService.sendDiscordUpdate(workspaceId, project.id, "project.created", notificationMessage),
+      NotificationService.sendTelegramAlert(workspaceId, project.id, "project.created", notificationMessage),
+    ]).catch((err) => console.error("Notification dispatch failed:", err));
 
     return NextResponse.json({
       success: true,

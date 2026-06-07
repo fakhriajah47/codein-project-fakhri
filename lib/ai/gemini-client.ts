@@ -10,7 +10,11 @@ export class GeminiClient {
   }
 
   private static getModel(): string {
-    return process.env.GEMINI_MODEL || "gemini-1.5-flash";
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    if (model === "gemini-flash-latest" || model === "gemini-1.5-flash") {
+      return "gemini-2.5-flash";
+    }
+    return model;
   }
 
   static async generateStructuredJSON<T>(params: {

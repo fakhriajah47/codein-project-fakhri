@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const focus = await AIService.generateDailyFocus(payload.workspaceId, payload.limit);
+    const focus = await AIService.generateDailyFocus(payload.workspaceId, payload.limit, payload.forceRegenerate);
     if (!focus) {
       return NextResponse.json(
         { success: false, message: "Failed to generate daily focus", error: { code: "AI_GENERATION_FAILED" } },

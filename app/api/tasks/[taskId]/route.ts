@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ActivityService } from "@/lib/services/activity-service";
 import { TaskService } from "@/lib/services/task-service";
 import { createClient } from "@/lib/supabase/server";
+import { NotificationService } from "@/lib/services/notification-service";
 
 export async function GET(
   _request: NextRequest,
@@ -84,7 +85,7 @@ export async function PATCH(
     // Fetch task to verify workspace membership
     const { data: task, error: fetchError } = await supabase
       .from("tasks")
-      .select("workspace_id, assignee_id")
+      .select("workspace_id, assignee_id, project_id, title")
       .eq("id", taskId)
       .single();
 
@@ -159,6 +160,17 @@ export async function PATCH(
       );
     }
 
+    const notificationMessage = `✏️ **Tugas Diperbarui!**
+    
+**Tugas:** ${updatedTask.title}
+**Prioritas:** ${updatedTask.priority.toUpperCase()}
+**Status:** ${updatedTask.status.replace("_", " ").toUpperCase()}`;
+
+    Promise.all([
+      NotificationService.sendDiscordUpdate(task.workspace_id, task.project_id, "task.updated", notificationMessage),
+      NotificationService.sendTelegramAlert(task.workspace_id, task.project_id, "task.updated", notificationMessage),
+    ]).catch((err) => console.error("Notification dispatch failed:", err));
+
     return NextResponse.json({
       success: true,
       message: "Task updated successfully",
@@ -191,7 +203,7 @@ export async function DELETE(
     // Fetch task
     const { data: task, error: fetchError } = await supabase
       .from("tasks")
-      .select("workspace_id")
+      .select("workspace_id, project_id, title")
       .eq("id", taskId)
       .single();
 
@@ -226,6 +238,15 @@ export async function DELETE(
         { status: 500 }
       );
     }
+
+    const notificationMessage = `🗑️ **Tugas Dihapus!**
+    
+**Tugas:** ${task.title}`;
+
+    Promise.all([
+      NotificationService.sendDiscordUpdate(task.workspace_id, task.project_id, "task.deleted", notificationMessage),
+      NotificationService.sendTelegramAlert(task.workspace_id, task.project_id, "task.deleted", notificationMessage),
+    ]).catch((err) => console.error("Notification dispatch failed:", err));
 
     return NextResponse.json({
       success: true,

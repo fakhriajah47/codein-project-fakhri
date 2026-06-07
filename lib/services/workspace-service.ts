@@ -47,7 +47,7 @@ export class WorkspaceService {
         .replace(/(^-|-$)+/g, "");
 
       // Insert workspace
-      const { data: workspace, error: wsError } = await supabase
+      const { data: workspace, error: wsError } = await adminSupabase
         .from("workspaces")
         .insert({
           name,

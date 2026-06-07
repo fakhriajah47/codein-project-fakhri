@@ -8,7 +8,12 @@ import { LoadingState } from "@/components/shared/loading-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ActivityLog } from "@/types";
-import { History, Calendar, User, Zap, Terminal } from "lucide-react";
+import { History, Calendar, User, Zap } from "lucide-react";
+import {
+  formatActivityActionLabel,
+  formatActivityDescription,
+  formatActivityMetadata,
+} from "@/lib/utils/activity-formatter";
 
 export default function ActivityLogsPage() {
   const { activeWorkspace } = useWorkspace();
@@ -92,30 +97,23 @@ export default function ActivityLogsPage() {
                 minute: "2-digit",
               });
 
+              const actionLabel = formatActivityActionLabel(activity.action);
+              const metadataLabel = formatActivityMetadata(activity);
+
               // Action Badge styling
               let actionBadgeVariant: BrutalBadgeVariant = "gray";
-              let actionLabel = activity.action.replace(".", " ");
-              if (activity.action.includes("create")) {
+              if (activity.action.includes("created") || activity.action.includes("invited")) {
                 actionBadgeVariant = "blue";
-                actionLabel = "BUAT";
               }
-              if (activity.action.includes("update") || activity.action.includes("status")) {
+              if (activity.action.includes("updated") || activity.action.includes("status") || activity.action.includes("role")) {
                 actionBadgeVariant = "yellow";
-                actionLabel = "PADA STATUS / UPDATE";
               }
-              if (activity.action.includes("delete")) {
+              if (activity.action.includes("deleted") || activity.action.includes("removed") || activity.action.includes("disconnected")) {
                 actionBadgeVariant = "red";
-                actionLabel = "HAPUS";
               }
               if (activity.action.includes("ai")) {
                 actionBadgeVariant = "purple";
-                actionLabel = "AI";
               }
-
-              let entityLabel = activity.entity_type;
-              if (activity.entity_type === "project") entityLabel = "proyek";
-              if (activity.entity_type === "task") entityLabel = "tugas";
-              if (activity.entity_type === "comment") entityLabel = "komentar";
 
               return (
                 <div key={activity.id} className="relative pl-8 md:pl-10">
@@ -143,14 +141,12 @@ export default function ActivityLogsPage() {
                         {activity.actor?.full_name || "Sistem"}
                       </span>
                       {" "}
-                      melakukan pembaruan pada {entityLabel}.
+                      {formatActivityDescription(activity)}
                     </div>
 
-                    {/* Metadata JSON block */}
-                    {activity.metadata && Object.keys(activity.metadata).length > 0 && (
-                      <div className="p-3 bg-gray-50 border border-brutal-black rounded-lg text-[11px] font-mono text-gray-500 overflow-x-auto max-w-full flex items-center gap-2 shadow-brutal-xs">
-                        <Terminal size={12} className="text-gray-400 shrink-0" />
-                        <span className="truncate">{JSON.stringify(activity.metadata)}</span>
+                    {metadataLabel && (
+                      <div className="p-3 bg-gray-50 border border-brutal-black rounded-lg text-[11px] font-black text-gray-500 max-w-full shadow-brutal-xs">
+                        <span className="block truncate">{metadataLabel}</span>
                       </div>
                     )}
                   </div>

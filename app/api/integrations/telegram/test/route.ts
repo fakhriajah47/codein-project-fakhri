@@ -1,7 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationService } from "@/lib/services/notification-service";
 import { createClient } from "@/lib/supabase/server";
-import { saveTelegramIntegrationSchema } from "@/lib/validators/integration.schema";
+import { MASK_PLACEHOLDER, saveTelegramIntegrationSchema } from "@/lib/validators/integration.schema";
+
+async function resolveTelegramConfig(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  botToken: string,
+  chatId: string
+) {
+  if (!botToken.includes(MASK_PLACEHOLDER)) {
+    return { botToken, chatId };
+  }
+
+  const { data: existing } = await supabase
+    .from("integration_settings")
+    .select("config")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", "telegram")
+    .maybeSingle();
+
+  const existingBotToken = existing?.config?.botToken;
+  if (typeof existingBotToken === "string" && existingBotToken.length > 0) {
+    return {
+      botToken: existingBotToken,
+      chatId: chatId || existing?.config?.chatId || "",
+    };
+  }
+
+  throw new Error("Saved Telegram bot token is missing. Please enter the full bot token again.");
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +58,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const success = await NotificationService.testTelegramConnection(workspaceId, botToken, chatId);
+    const telegramConfig = await resolveTelegramConfig(supabase, workspaceId, botToken, chatId);
+    const success = await NotificationService.testTelegramConnection(
+      workspaceId,
+      telegramConfig.botToken,
+      telegramConfig.chatId
+    );
 
     if (!success) {
       return NextResponse.json(

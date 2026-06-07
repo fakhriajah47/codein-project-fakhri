@@ -4,19 +4,21 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Workspace } from "@/types";
-import { ChevronDown, Plus, LogOut } from "lucide-react";
+import { ChevronDown, Plus, LogOut, Menu } from "lucide-react";
 import Link from "next/link";
 
 interface AppTopbarProps {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
   onWorkspaceChange: (workspaceId: string) => void;
+  onMenuToggle?: () => void;
 }
 
 export const AppTopbar: React.FC<AppTopbarProps> = ({
   workspaces,
   activeWorkspace,
   onWorkspaceChange,
+  onMenuToggle,
 }) => {
   const router = useRouter();
   const supabase = createClient();
@@ -75,14 +77,23 @@ export const AppTopbar: React.FC<AppTopbarProps> = ({
     : "P";
 
   return (
-    <header className="h-16 bg-white border-b-4 border-brutal-black flex items-center justify-between px-6 z-10">
-      {/* Workspace Switcher */}
-      <div className="relative" ref={wsRef}>
-        <button
+    <header className="h-16 bg-white border-b-4 border-brutal-black flex items-center justify-between px-4 sm:px-6 z-10">
+      {/* Workspace Switcher & Hamburger Toggle */}
+      <div className="flex items-center gap-3">
+        {onMenuToggle && (
+          <button
+            onClick={onMenuToggle}
+            className="md:hidden border-2 border-brutal-black p-1.5 bg-white hover:bg-gray-100 rounded-xl cursor-pointer shadow-brutal-xs"
+          >
+            <Menu size={18} />
+          </button>
+        )}
+        <div className="relative" ref={wsRef}>
+          <button
           onClick={() => setWsDropdownOpen(!wsDropdownOpen)}
           className="flex items-center gap-2 border-2 border-brutal-black px-4 py-1.5 bg-white rounded-xl shadow-brutal-xs hover:shadow-brutal-sm cursor-pointer font-black text-sm uppercase transition-all"
         >
-          <span>{activeWorkspace?.name || "Pilih Ruang Kerja"}</span>
+          <span className="max-w-[100px] sm:max-w-none truncate">{activeWorkspace?.name || "Pilih Ruang Kerja"}</span>
           <ChevronDown size={16} />
         </button>
 
@@ -115,6 +126,7 @@ export const AppTopbar: React.FC<AppTopbarProps> = ({
           </div>
         )}
       </div>
+    </div>
 
       {/* Right side controls */}
       <div className="flex items-center gap-4">

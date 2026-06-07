@@ -1,6 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { saveDiscordIntegrationSchema } from "@/lib/validators/integration.schema";
+import { MASK_PLACEHOLDER, saveDiscordIntegrationSchema } from "@/lib/validators/integration.schema";
+
+async function resolveDiscordWebhookUrl(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  webhookUrl: string
+) {
+  if (!webhookUrl.includes(MASK_PLACEHOLDER)) return webhookUrl;
+
+  const { data: existing } = await supabase
+    .from("integration_settings")
+    .select("config")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", "discord")
+    .maybeSingle();
+
+  const existingWebhookUrl = existing?.config?.webhookUrl;
+  if (typeof existingWebhookUrl === "string" && existingWebhookUrl.length > 0) {
+    return existingWebhookUrl;
+  }
+
+  const defaultWebhook = process.env.DISCORD_WEBHOOK_URL_DEFAULT || process.env.DISCORD_WEBHOOK_URL;
+  if (defaultWebhook) {
+    return defaultWebhook;
+  }
+
+  throw new Error("Saved Discord webhook is missing. Please enter the full webhook URL again.");
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,19 +56,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let finalWebhookUrl = webhookUrl;
-    if (webhookUrl.includes("****************")) {
-      const { data: existing } = await supabase
-        .from("integration_settings")
-        .select("config")
-        .eq("workspace_id", workspaceId)
-        .eq("provider", "discord")
-        .maybeSingle();
-
-      if (existing?.config?.webhookUrl) {
-        finalWebhookUrl = existing.config.webhookUrl;
-      }
-    }
+    const finalWebhookUrl = await resolveDiscordWebhookUrl(supabase, workspaceId, webhookUrl);
 
     const { data, error } = await supabase
       .from("integration_settings")
@@ -63,7 +78,7 @@ export async function POST(request: NextRequest) {
       data: {
         ...data,
         config: {
-          webhookUrl: finalWebhookUrl.slice(0, 25) + "****************",
+          webhookUrl: finalWebhookUrl.slice(0, 25) + MASK_PLACEHOLDER,
         },
       },
     });

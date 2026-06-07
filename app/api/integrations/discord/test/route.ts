@@ -1,7 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationService } from "@/lib/services/notification-service";
 import { createClient } from "@/lib/supabase/server";
-import { saveDiscordIntegrationSchema } from "@/lib/validators/integration.schema";
+import { MASK_PLACEHOLDER, saveDiscordIntegrationSchema } from "@/lib/validators/integration.schema";
+
+async function resolveDiscordWebhookUrl(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  webhookUrl: string
+) {
+  if (!webhookUrl.includes(MASK_PLACEHOLDER)) return webhookUrl;
+
+  const { data: existing } = await supabase
+    .from("integration_settings")
+    .select("config")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", "discord")
+    .maybeSingle();
+
+  const existingWebhookUrl = existing?.config?.webhookUrl;
+  if (typeof existingWebhookUrl === "string" && existingWebhookUrl.length > 0) {
+    return existingWebhookUrl;
+  }
+
+  throw new Error("Saved Discord webhook is missing. Please enter the full webhook URL again.");
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +52,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const success = await NotificationService.testDiscordConnection(workspaceId, webhookUrl);
+    const finalWebhookUrl = await resolveDiscordWebhookUrl(supabase, workspaceId, webhookUrl);
+    const success = await NotificationService.testDiscordConnection(workspaceId, finalWebhookUrl);
 
     if (!success) {
       return NextResponse.json(

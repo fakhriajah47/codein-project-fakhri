@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ProjectService } from "@/lib/services/project-service";
 import { createClient } from "@/lib/supabase/server";
+import { NotificationService } from "@/lib/services/notification-service";
 
 export async function GET(
   request: NextRequest,
@@ -115,6 +116,17 @@ export async function PATCH(
       );
     }
 
+    const notificationMessage = `ℹ️ **Detail Proyek Diperbarui!**
+    
+**Proyek:** ${updated.name}
+**Status:** ${updated.status.toUpperCase()}
+**Prioritas:** ${updated.priority.toUpperCase()}`;
+
+    Promise.all([
+      NotificationService.sendDiscordUpdate(project.workspace_id, projectId, "project.updated", notificationMessage),
+      NotificationService.sendTelegramAlert(project.workspace_id, projectId, "project.updated", notificationMessage),
+    ]).catch((err) => console.error("Notification dispatch failed:", err));
+
     return NextResponse.json({
       success: true,
       message: "Project updated successfully",
@@ -175,6 +187,15 @@ export async function DELETE(
         { status: 500 }
       );
     }
+
+    const notificationMessage = `🗑️ **Proyek Dihapus!**
+    
+**Proyek:** ${project.name}`;
+
+    Promise.all([
+      NotificationService.sendDiscordUpdate(project.workspace_id, projectId, "project.deleted", notificationMessage),
+      NotificationService.sendTelegramAlert(project.workspace_id, projectId, "project.deleted", notificationMessage),
+    ]).catch((err) => console.error("Notification dispatch failed:", err));
 
     return NextResponse.json({
       success: true,

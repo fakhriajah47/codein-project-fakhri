@@ -68,7 +68,22 @@ export class AIService {
 
     const systemInstruction = `
       You are an elite Project Management AI. You translate high level project descriptions and briefs into structured, actionable milestones and tasks.
-      Always respond in valid JSON matching the schema. Do not include any text before or after the JSON.
+      You MUST output valid JSON matching the following TypeScript interface definition exactly:
+      interface Response {
+        milestones: Array<{
+          title: string; // Milestone title (required, minimum 1 character)
+          description: string; // Milestone description (default is "")
+          tasks: Array<{
+            title: string; // Task title (required, minimum 1 character)
+            description: string; // Task description (default is "")
+            priority: "low" | "medium" | "high" | "urgent"; // Task priority
+            suggestedRole: string; // Suggest a role for assignee, e.g., "Developer", "Designer" (default is "Developer")
+            estimatedHours: number | null; // Hours estimate (integer or null)
+            acceptanceCriteria: string[]; // List of acceptance criteria (default is empty array)
+          }>;
+        }>;
+      }
+      Do not include any text before or after the JSON. Do not use markdown backticks like \`\`\`json. Output raw JSON only.
     `;
 
     try {
@@ -216,7 +231,16 @@ export class AIService {
 
       const systemInstruction = `
         You are an expert Project Intelligence AI that identifies bottlenecks and timeline risks.
-        Analyze the provided project status and outputs structured JSON risk telemetry. Do not explain, output only JSON.
+        You MUST output valid JSON matching the following TypeScript interface definition exactly:
+        interface Response {
+          riskLevel: "low" | "medium" | "high" | "critical";
+          riskScore: number; // integer score from 0 to 100
+          summary: string; // descriptive risk summary
+          reasons: string[]; // array of reasons for this assessment
+          recommendations: string[]; // array of recommended mitigation actions
+          escalationMessage: string; // brief message suitable for escalation/alerts
+        }
+        Analyze the provided project status and output structured JSON risk telemetry. Do not explain, output only valid JSON. Do not include any text before or after the JSON.
       `;
 
       const result = await GeminiClient.generateStructuredJSON<AIRiskAnalysisResponse>({
@@ -313,7 +337,18 @@ export class AIService {
 
       const systemInstruction = `
         You are a seasoned Executive Secretary AI. You distill complex engineering/product workloads into concise, board-room-ready summaries.
-        Output ONLY structured JSON matching the schema.
+        You MUST output valid JSON matching the following TypeScript interface definition exactly:
+        interface Response {
+          title: string; // A descriptive title for the executive report
+          status: "Healthy" | "At Risk" | "Critical" | "Completed"; // Overall project status
+          progress: number; // integer progress percentage from 0 to 100
+          summary: string; // High-level executive summary text (in Indonesian/Bahasa Indonesia, professional and clear)
+          completedWork: string[]; // Key highlights of what has been completed
+          pendingWork: string[]; // Key critical tasks or milestones pending
+          risks: string[]; // Identified risks or bottlenecks
+          nextActions: string[]; // Recommended immediate next steps
+        }
+        Output ONLY structured JSON. Do not include any text before or after the JSON.
       `;
 
       const result = await GeminiClient.generateStructuredJSON<AIExecutiveSummaryResponse>({
@@ -349,17 +384,124 @@ export class AIService {
     }
   }
 
+  private static buildDeterministicDailyFocus(tasks: any[], limit: number): AIDailyFocusResponse {
+    const todayStr = new Date().toISOString().split("T")[0];
+    
+    // Sort tasks: overdue first, then urgent -> high -> medium -> low priority, then by due date
+    const sortedTasks = [...tasks].sort((a, b) => {
+      // Overdue check
+      const aOverdue = a.due_date && a.due_date < todayStr && a.status !== "done";
+      const bOverdue = b.due_date && b.due_date < todayStr && b.status !== "done";
+      if (aOverdue && !bOverdue) return -1;
+      if (!aOverdue && bOverdue) return 1;
+
+      // Priority rank
+      const priorityWeight = { urgent: 4, high: 3, medium: 2, low: 1 };
+      const aWeight = priorityWeight[a.priority as keyof typeof priorityWeight] || 2;
+      const bWeight = priorityWeight[b.priority as keyof typeof priorityWeight] || 2;
+      if (aWeight !== bWeight) return bWeight - aWeight;
+
+      // Due date
+      if (a.due_date && b.due_date) {
+        return a.due_date.localeCompare(b.due_date);
+      }
+      if (a.due_date) return -1;
+      if (b.due_date) return 1;
+
+      return 0;
+    });
+
+    const selectedTasks = sortedTasks.slice(0, limit);
+
+    const focusTasks = selectedTasks.map(t => {
+      const isOverdue = t.due_date && t.due_date < todayStr;
+      let reason = `Tugas ini merupakan prioritas ${t.priority} di ruang kerja Anda.`;
+      if (isOverdue) {
+        reason = `TUGAS TERLAMBAT (Tenggat: ${t.due_date}). Harus diselesaikan segera untuk menghindari penundaan proyek lebih lanjut.`;
+      } else if (t.priority === "urgent") {
+        reason = "Tugas mendesak yang membutuhkan perhatian utama Anda hari ini.";
+      } else if (t.priority === "high") {
+        reason = "Tugas prioritas tinggi penting untuk kemajuan milestone minggu ini.";
+      } else if (t.status === "blocked") {
+        reason = "Tugas ini terhambat. Selesaikan blocker agar alur kerja tim lancar.";
+      }
+
+      let suggestedAction = "Mulai kerjakan dan update status ke In Progress.";
+      if (t.status === "in_progress") {
+        suggestedAction = "Selesaikan pengerjaan dan kirim untuk direview.";
+      } else if (t.status === "in_review") {
+        suggestedAction = "Hubungi manager atau reviewer untuk mendapatkan persetujuan.";
+      } else if (isOverdue) {
+        suggestedAction = "Fokus 100% untuk menuntaskan backlog terlambat ini sekarang.";
+      }
+
+      return {
+        taskId: t.id,
+        title: t.title,
+        reason,
+        suggestedAction,
+        priority: t.priority as "low" | "medium" | "high" | "urgent",
+      };
+    });
+
+    const overdueCount = selectedTasks.filter(t => t.due_date && t.due_date < todayStr).length;
+    const urgentCount = selectedTasks.filter(t => t.priority === "urgent" || t.priority === "high").length;
+
+    let aiNote = "Beban kerja Anda hari ini terlihat stabil. Fokus selesaikan tugas-tugas prioritas secara bertahap.";
+    if (overdueCount > 0) {
+      aiNote = `Perhatian: Anda memiliki ${overdueCount} tugas terlambat. Utamakan pengerjaan backlog ini sebelum memulai tugas baru.`;
+    } else if (urgentCount > 0) {
+      aiNote = `Hari produktif! Fokus Anda hari ini tertuju pada ${urgentCount} tugas prioritas tinggi. Tetap semangat!`;
+    }
+
+    const priorities = ["Penyelesaian Task"];
+    if (overdueCount > 0) priorities.push("Pembersihan Backlog Terlambat");
+    if (urgentCount > 0) priorities.push("Fokus Prioritas Tinggi");
+
+    return {
+      focusDate: todayStr,
+      aiNote,
+      priorities,
+      focusTasks,
+    };
+  }
+
   static async generateDailyFocus(
     workspaceId: string,
-    limit = 5
+    limit = 5,
+    forceRegenerate = false
   ): Promise<AIDailyFocusResponse | null> {
+    let tasks: any[] | null = null;
     try {
       const supabase = await createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Unauthorized");
 
       const todayStr = new Date().toISOString().split("T")[0];
-      const { data: tasks, error } = await supabase
+
+      // 1. Caching layer: Check for existing daily_focus for this user and workspace created today
+      if (!forceRegenerate) {
+        const { data: cachedLogs, error: cacheError } = await supabase
+          .from("ai_generations")
+          .select("response, created_at")
+          .eq("workspace_id", workspaceId)
+          .eq("user_id", user.id)
+          .eq("type", "daily_focus")
+          .eq("status", "success")
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (!cacheError && cachedLogs && cachedLogs.length > 0) {
+          const lastLog = cachedLogs[0];
+          const lastLogDate = new Date(lastLog.created_at).toISOString().split("T")[0];
+          if (lastLogDate === todayStr && lastLog.response) {
+            console.log(`Serving cached AI Daily Focus for user ${user.id} in workspace ${workspaceId}`);
+            return lastLog.response as unknown as AIDailyFocusResponse;
+          }
+        }
+      }
+
+      const { data: fetchedTasks, error } = await supabase
         .from("tasks")
         .select(`
           id,
@@ -381,7 +523,18 @@ export class AIService {
         return null;
       }
 
-      const taskContext = (tasks || []).map((task) => ({
+      tasks = fetchedTasks;
+
+      if (!tasks || tasks.length === 0) {
+        return {
+          focusDate: todayStr,
+          aiNote: "Anda tidak memiliki tugas aktif yang ditugaskan saat ini. Silakan bersantai atau hubungi manajer proyek Anda untuk tugas baru.",
+          priorities: ["Tidak ada tugas aktif"],
+          focusTasks: [],
+        };
+      }
+
+      const taskContext = tasks.map((task) => ({
         id: task.id,
         title: task.title,
         description: task.description,
@@ -401,8 +554,21 @@ export class AIService {
       `;
 
       const systemInstruction = `
-        You are an executive project focus assistant. Produce strict JSON only.
-        Choose the smallest high-impact focus set and explain why each task matters today.
+        You are an executive project focus assistant.
+        You MUST output valid JSON matching the following TypeScript interface definition exactly:
+        interface Response {
+          focusDate: string; // current date in YYYY-MM-DD format
+          aiNote: string; // daily executive summary note in Indonesian/Bahasa Indonesia
+          priorities: string[]; // top 2-3 overall focus priority themes/areas for the day in Indonesian
+          focusTasks: Array<{
+            taskId: string; // The ID of the task
+            title: string; // The title of the task
+            reason: string; // Explanation of why this task is selected for today's focus (in Indonesian)
+            suggestedAction: string; // Concrete next step action for this task (in Indonesian)
+            priority: "low" | "medium" | "high" | "urgent"; // The task priority
+          }>;
+        }
+        Choose the smallest high-impact focus set and explain why each task matters today. Produce strict JSON only. Do not include any text before or after the JSON.
       `;
 
       const result = await GeminiClient.generateStructuredJSON<AIDailyFocusResponse>({
@@ -430,11 +596,29 @@ export class AIService {
 
       return result;
     } catch (err: any) {
-      console.error("AI Daily Focus failed:", err);
+      console.error("AI Daily Focus failed, using local deterministic fallback:", err);
+      
+      try {
+        const fallbackResult = this.buildDeterministicDailyFocus(tasks || [], limit);
+        
+        // Cache the fallback so we don't query Gemini again on next load
+        await this.logGeneration({
+          workspaceId,
+          type: "daily_focus",
+          prompt: "daily_focus_fallback_after_error",
+          response: fallbackResult as any,
+          status: "success",
+        });
+
+        return fallbackResult;
+      } catch (fallbackErr) {
+        console.error("Local daily focus fallback generation failed:", fallbackErr);
+      }
+
       await this.logGeneration({
         workspaceId,
         type: "daily_focus",
-        prompt: "daily_focus",
+        prompt: "daily_focus_error",
         status: "failed",
         errorMessage: err?.message || String(err),
       });

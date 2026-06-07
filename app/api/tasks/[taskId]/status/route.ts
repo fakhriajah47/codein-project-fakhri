@@ -3,6 +3,7 @@ import { ProjectService } from "@/lib/services/project-service";
 import { TaskService } from "@/lib/services/task-service";
 import { createClient } from "@/lib/supabase/server";
 import { updateTaskStatusSchema } from "@/lib/validators/task.schema";
+import { NotificationService } from "@/lib/services/notification-service";
 
 export async function PATCH(
   request: NextRequest,
@@ -23,7 +24,7 @@ export async function PATCH(
 
     const { data: task, error: fetchError } = await supabase
       .from("tasks")
-      .select("workspace_id, project_id, assignee_id")
+      .select("workspace_id, project_id, assignee_id, title")
       .eq("id", taskId)
       .single();
 
@@ -72,6 +73,16 @@ export async function PATCH(
     }
 
     const projectProgress = await ProjectService.recalculateProjectProgress(task.project_id);
+
+    const notificationMessage = `🔄 **Status Tugas Diperbarui!**
+    
+**Tugas:** ${task.title}
+**Status Baru:** ${updatedTask.status.replace("_", " ").toUpperCase()}`;
+
+    Promise.all([
+      NotificationService.sendDiscordUpdate(task.workspace_id, task.project_id, "task.status_updated", notificationMessage),
+      NotificationService.sendTelegramAlert(task.workspace_id, task.project_id, "task.status_updated", notificationMessage),
+    ]).catch((err) => console.error("Notification dispatch failed:", err));
 
     return NextResponse.json({
       success: true,
