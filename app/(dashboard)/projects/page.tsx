@@ -12,10 +12,11 @@ import { LoadingState } from "@/components/shared/loading-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Project, ProjectPriority } from "@/types";
-import { Folder, Calendar, Plus, X, Search } from "lucide-react";
-import Link from "next/link";
+import { Folder, Calendar, Plus, X, Search, ArrowUpRight } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function ProjectsCatalogPage() {
+  const router = useRouter();
   const { activeWorkspace, workspaceRole } = useWorkspace();
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -279,67 +280,68 @@ export default function ProjectsCatalogPage() {
             }
 
             return (
-              <Link key={project.id} href={`/projects/${project.id}`} className="block group">
-                <BrutalCard
-                  interactive
-                  className="bg-white flex flex-col justify-between h-full cursor-pointer group-hover:shadow-brutal-lg group-hover:-translate-y-0.5 transition-all duration-150"
-                >
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-[10px] font-black uppercase bg-gray-100 border border-brutal-black px-1.5 py-0.5 rounded">
-                        {project.project_type || "Proyek Umum"}
-                      </span>
-                      <div className="flex gap-1">
-                        <BrutalBadge variant={healthVariant} className="text-[10px] font-black uppercase">
-                          {healthLabel}
+              <BrutalCard
+                key={project.id}
+                interactive
+                onClick={() => router.push(`/projects/${project.id}`)}
+                className="bg-white flex flex-col justify-between h-full cursor-pointer hover:shadow-brutal-lg hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-[10px] font-black uppercase bg-gray-100 border border-brutal-black px-1.5 py-0.5 rounded">
+                      {project.project_type || "Proyek Umum"}
+                    </span>
+                    <div className="flex gap-1 items-center">
+                      <BrutalBadge variant={healthVariant} className="text-[10px] font-black uppercase">
+                        {healthLabel}
+                      </BrutalBadge>
+                      {project.priority !== "low" && (
+                        <BrutalBadge variant={priorityVariant} className="text-[10px] font-black uppercase">
+                          {priorityLabel}
                         </BrutalBadge>
-                        {project.priority !== "low" && (
-                          <BrutalBadge variant={priorityVariant} className="text-[10px] font-black uppercase">
-                            {priorityLabel}
-                          </BrutalBadge>
-                        )}
-                      </div>
+                      )}
+                      <ArrowUpRight size={14} className="text-gray-400 shrink-0" />
                     </div>
+                  </div>
 
-                    <div>
-                      <h3 className="text-xl font-black text-brutal-black line-clamp-1 group-hover:underline">
-                        {project.name}
-                      </h3>
-                      <p className="text-xs font-bold text-gray-500">
-                        Klien: {project.client_name || "Internal"}
-                      </p>
-                    </div>
-
-                    <p className="text-xs font-bold text-gray-600 line-clamp-2 h-8">
-                      {project.description || "Tidak ada deskripsi singkat untuk proyek ini."}
+                  <div>
+                    <h3 className="text-xl font-black text-brutal-black line-clamp-1 hover:underline">
+                      {project.name}
+                    </h3>
+                    <p className="text-xs font-bold text-gray-500">
+                      Klien: {project.client_name || "Internal"}
                     </p>
+                  </div>
 
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs font-black text-brutal-black">
-                        <span>PROGRES</span>
-                        <span>{project.progress}%</span>
-                      </div>
-                      <div className="w-full bg-gray-100 border-2 border-brutal-black rounded-full h-3 overflow-hidden p-0.5">
-                        <div
-                          className="bg-brutal-blue border-r border-brutal-black h-full rounded-full transition-all"
-                          style={{ width: `${project.progress}%` }}
-                        />
-                      </div>
+                  <p className="text-xs font-bold text-gray-600 line-clamp-2 h-8">
+                    {project.description || "Tidak ada deskripsi singkat untuk proyek ini."}
+                  </p>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs font-black text-brutal-black">
+                      <span>PROGRES</span>
+                      <span>{project.progress}%</span>
+                    </div>
+                    <div className="w-full bg-gray-100 border-2 border-brutal-black rounded-full h-3 overflow-hidden p-0.5">
+                      <div
+                        className="bg-brutal-blue border-r border-brutal-black h-full rounded-full transition-all"
+                        style={{ width: `${project.progress}%` }}
+                      />
                     </div>
                   </div>
+                </div>
 
-                  <div className="mt-6 border-t-2 border-dashed border-gray-200 pt-4 flex items-center justify-between text-xs font-bold text-gray-500">
-                    <span className="flex items-center gap-1.5">
-                      <Calendar size={14} />
-                      {project.due_date ? new Date(project.due_date).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "Tanpa tenggat waktu"}
-                    </span>
-                    
-                    <span className="font-black text-brutal-black">
-                      Skor risiko: <span className="bg-brutal-yellow px-1 py-0.5 border border-brutal-black shadow-brutal-xs">{project.risk_score}</span>
-                    </span>
-                  </div>
-                </BrutalCard>
-              </Link>
+                <div className="mt-6 border-t-2 border-dashed border-gray-200 pt-4 flex items-center justify-between text-xs font-bold text-gray-500">
+                  <span className="flex items-center gap-1.5">
+                    <Calendar size={14} />
+                    {project.due_date ? new Date(project.due_date).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "Tanpa tenggat waktu"}
+                  </span>
+                  
+                  <span className="font-black text-brutal-black">
+                    Skor risiko: <span className="bg-brutal-yellow px-1 py-0.5 border border-brutal-black shadow-brutal-xs">{project.risk_score}</span>
+                  </span>
+                </div>
+              </BrutalCard>
             );
           })}
         </div>
