@@ -37,7 +37,8 @@ export async function proxy(request: NextRequest) {
 
   const isAuthPage =
     request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/register");
+    request.nextUrl.pathname.startsWith("/register") ||
+    request.nextUrl.pathname.startsWith("/invite");
 
   const isProtectedPage =
     request.nextUrl.pathname.startsWith("/dashboard") ||
@@ -55,7 +56,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (isAuthPage && user) {
+  // Redirect authenticated users away from login/register ONLY (not /invite)
+  const isLoginOrRegister =
+    request.nextUrl.pathname.startsWith("/login") ||
+    request.nextUrl.pathname.startsWith("/register");
+
+  if (isLoginOrRegister && user) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

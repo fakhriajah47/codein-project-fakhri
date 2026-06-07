@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Workspace, WorkspaceMember, WorkspaceRole } from "@/types";
 import { ActivityService } from "./activity-service";
+import { sendInviteEmail } from "./email-service";
+import crypto from "crypto";
 
 export class WorkspaceService {
   static async getWorkspaces(): Promise<Workspace[]> {
@@ -246,66 +248,136 @@ export class WorkspaceService {
         return { success: false, message: "Only owners and managers can invite members." };
       }
 
-      // Check if target user exists in auth.users using admin client
-      const { data: authData, error: listError } = await adminSupabase.auth.admin.listUsers();
-      if (listError) {
-        console.error("Error listing users for invite lookup:", listError);
-        return { success: false, message: "Failed to look up users." };
+      // Get workspace name and inviter profile
+      const { data: workspace } = await supabase
+        .from("workspaces")
+        .select("name")
+        .eq("id", workspaceId)
+        .single();
+
+      const { data: inviterProfile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("user_id", user.id)
+        .single();
+
+      // Check if already a member of this workspace (check by email via admin)
+      const { data: authData } = await adminSupabase.auth.admin.listUsers();
+      const targetAuthUser = authData?.users?.find(u => u.email === email);
+
+      if (targetAuthUser) {
+        // User already registered — check if already member
+        const { data: existingMember } = await supabase
+          .from("workspace_members")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .eq("user_id", targetAuthUser.id)
+          .maybeSingle();
+
+        if (existingMember) {
+          return { success: false, message: "User sudah menjadi anggota workspace ini." };
+        }
       }
 
-      const targetAuthUser = authData.users.find(u => u.email === email);
-      if (!targetAuthUser) {
-        return {
-          success: false,
-          message: `User with email ${email} is not registered in Project Management. Please register first.`,
-        };
-      }
+      // Generate secure invite token (48h expiry)
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
 
-      // Check if already a member of this workspace
-      const { data: existingMember } = await supabase
-        .from("workspace_members")
-        .select("id")
-        .eq("workspace_id", workspaceId)
-        .eq("user_id", targetAuthUser.id)
-        .maybeSingle();
-
-      if (existingMember) {
-        return { success: false, message: "User is already a member or has been invited." };
-      }
-
-      // Add user as workspace member using admin client
-      const { data: newMember, error: inviteError } = await adminSupabase
-        .from("workspace_members")
+      // Store invite in workspace_invites table
+      const { data: invite, error: inviteInsertError } = await adminSupabase
+        .from("workspace_invites")
         .insert({
           workspace_id: workspaceId,
-          user_id: targetAuthUser.id,
+          invited_email: email,
           role,
-          status: "active", // Autoconfirm active for demo
+          token,
           invited_by: user.id,
-          joined_at: new Date().toISOString(),
+          expires_at: expiresAt,
+          status: "pending",
         })
         .select()
         .single();
 
-      if (inviteError) {
-        console.error("Error inserting member invite:", inviteError);
-        return { success: false, message: "Failed to invite member." };
+      if (inviteInsertError) {
+        console.error("Error creating invite:", inviteInsertError);
+        // Fallback: if workspace_invites table doesn't exist, add directly as member
+        if (targetAuthUser) {
+          const { data: newMember, error: directError } = await adminSupabase
+            .from("workspace_members")
+            .insert({
+              workspace_id: workspaceId,
+              user_id: targetAuthUser.id,
+              role,
+              status: "active",
+              invited_by: user.id,
+              joined_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+
+          if (directError) return { success: false, message: "Gagal menambahkan member." };
+
+          await ActivityService.logActivity({
+            workspaceId,
+            actorId: user.id,
+            action: "member.invited",
+            entityType: "workspace_member",
+            entityId: newMember.id,
+            metadata: { invitedEmail: email, role },
+          });
+
+          return { success: true, message: "Member berhasil ditambahkan ke workspace.", member: newMember as WorkspaceMember };
+        }
+        return { success: false, message: "Gagal membuat undangan." };
       }
 
-      // Log activity
-      await ActivityService.logActivity({
-        workspaceId,
-        actorId: user.id,
-        action: "member.invited",
-        entityType: "workspace_member",
-        entityId: newMember.id,
-        metadata: { invitedEmail: email, role },
-      });
+      // Send invitation email
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:3000";
+      const acceptUrl = `${appUrl}/invite/accept?token=${token}`;
+
+      try {
+        await sendInviteEmail({
+          to: email,
+          inviterName: inviterProfile?.full_name || "Tim Project Management",
+          workspaceName: workspace?.name || "Workspace",
+          role,
+          acceptUrl,
+        });
+      } catch (emailErr) {
+        console.error("Failed to send invite email (non-fatal):", emailErr);
+        // Continue even if email fails — invite is still created
+      }
+
+      // If user already registered, also add directly as active member
+      if (targetAuthUser) {
+        const { data: newMember } = await adminSupabase
+          .from("workspace_members")
+          .insert({
+            workspace_id: workspaceId,
+            user_id: targetAuthUser.id,
+            role,
+            status: "active",
+            invited_by: user.id,
+            joined_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        await ActivityService.logActivity({
+          workspaceId,
+          actorId: user.id,
+          action: "member.invited",
+          entityType: "workspace_member",
+          entityId: newMember?.id || invite.id,
+          metadata: { invitedEmail: email, role },
+        });
+      }
 
       return {
         success: true,
-        message: "Member added successfully.",
-        member: newMember as WorkspaceMember,
+        message: targetAuthUser
+          ? `Member berhasil ditambahkan dan email undangan dikirim ke ${email}.`
+          : `Email undangan dikirim ke ${email}. Mereka perlu mendaftar terlebih dahulu.`,
       };
     } catch (err) {
       console.error("Failed to invite member:", err);
